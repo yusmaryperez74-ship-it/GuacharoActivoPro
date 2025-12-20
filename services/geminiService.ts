@@ -3,8 +3,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { ANIMALS } from '../constants';
 import { Prediction } from '../types';
 
-// Always use const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// La variable process.env.API_KEY será inyectada por Vite en tiempo de construcción
+const ai = new GoogleGenAI({ apiKey: (process.env as any).API_KEY || '' });
 
 export const generatePrediction = async (): Promise<Prediction[]> => {
   try {
@@ -37,8 +37,12 @@ export const generatePrediction = async (): Promise<Prediction[]> => {
       }
     });
 
-    // response.text is a property, not a method
-    const data = JSON.parse(response.text);
+    const text = response.text;
+    if (!text) {
+      throw new Error("No se recibió respuesta del modelo");
+    }
+
+    const data = JSON.parse(text);
     return data.predictions.map((p: any) => ({
       animal: ANIMALS.find(a => a.id === p.animalId || a.number === p.animalId) || ANIMALS[0],
       probability: p.probability,
