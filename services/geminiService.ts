@@ -50,7 +50,7 @@ export const generatePrediction = async (history: any[] = []): Promise<Predictio
       contents: `SISTEMA ANALÍTICO GUÁCHARO AI. 
                 DATOS ESTADÍSTICOS: ${statsPredictions.map(p => `${p.animal.name} (${p.probability}%)`).join(', ')}.
                 HISTORIAL: ${history.slice(0, 5).map(h => h.animalData?.name || h.animal).join(' -> ')}.
-                TAREA: Valida estos 5 resultados y provee razonamiento técnico.`,
+                TAREA: Valida estos 5 resultados y provee razonamiento técnico profesional basado en ciencia de datos.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -71,7 +71,7 @@ export const generatePrediction = async (history: any[] = []): Promise<Predictio
             }
           }
         },
-        temperature: 0.1,
+        temperature: 0.2, // Ajustado para balancear razonamiento técnico
       }
     });
 
@@ -110,7 +110,7 @@ export const fetchRealResults = async (): Promise<{ draws: Partial<DrawResult>[]
     const today = new Date().toLocaleDateString('es-ES');
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `ACCESO RÁPIDO: Identifica la página OFICIAL de la lotería "Guácharo Activo" (o su Instagram oficial) y extrae únicamente los resultados de HOY ${today}. 
+      contents: `ACCESO RÁPIDO: Identifica la página OFICIAL de la lotería "Guácharo Activo" y extrae únicamente los resultados de HOY ${today}. 
       REGLA: Usa solo UNA fuente (la más autoritativa). 
       RETORNA JSON: { "draws": [{ "hour": "HH:mm", "animalName": "Nombre", "number": "00" }] }.`,
       config: {
@@ -121,7 +121,7 @@ export const fetchRealResults = async (): Promise<{ draws: Partial<DrawResult>[]
     const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => ({
       uri: c.web?.uri,
       title: c.web?.title
-    })).filter((s: any) => s && s.uri).slice(0, 1) || []; // Solo mostramos la fuente principal
+    })).filter((s: any) => s && s.uri).slice(0, 1) || [];
 
     const data = safeParseJSON(response.text || "", { draws: [] });
     
@@ -150,7 +150,6 @@ export const fetchExtendedHistory = async (): Promise<{ history: any[], sources:
   }
 
   try {
-    // Usamos gemini-3-flash-preview aquí también para máxima velocidad a petición del usuario
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `HISTORIAL RÁPIDO: Localiza el archivo oficial o la fuente más completa de resultados de "Guácharo Activo". 
@@ -189,10 +188,10 @@ export const fetchExtendedHistory = async (): Promise<{ history: any[], sources:
 };
 
 /**
- * Generador de historial de respaldo
+ * Generador de historial de respaldo con tipos explícitos para evitar errores de compilación.
  */
-function generateFallbackHistory() {
-  const fallback = [];
+function generateFallbackHistory(): any[] {
+  const fallback: any[] = [];
   const today = new Date();
   const hours = ['09:00', '10:00', '11:00', '12:00', '13:00', '16:00', '17:00', '18:00', '19:00'];
   
