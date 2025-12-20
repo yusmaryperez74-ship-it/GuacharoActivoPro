@@ -22,6 +22,14 @@ export interface Prediction {
   reasoning: string;
 }
 
+export interface DrawResult {
+  hour: string;
+  label: string;
+  animal: Animal | null;
+  isCompleted: boolean;
+  isNext: boolean;
+}
+
 export interface PastResult {
   date: string;
   time: string;
