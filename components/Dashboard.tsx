@@ -14,6 +14,7 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDarkMode }) => {
   const [loading, setLoading] = useState(false);
   const [fetchingReal, setFetchingReal] = useState(false);
+  const [showUpdateToast, setShowUpdateToast] = useState(false);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [draws, setDraws] = useState<DrawResult[]>([]);
   const [history, setHistory] = useState<any[]>([]);
@@ -40,7 +41,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
       ]);
       setDraws(getDrawSchedule(realData.draws as any));
       setHistory(historyData.history);
-      setLastUpdate(new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }));
+      const nowLabel = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastUpdate(nowLabel);
+      
+      // Trigger visual feedback
+      setShowUpdateToast(true);
+      setTimeout(() => setShowUpdateToast(false), 3000);
     } catch (e) {
       console.error("Sync error", e);
     } finally {
@@ -51,7 +57,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
   useEffect(() => {
     hydrate();
     const timer = setInterval(() => setCountdown(getNextDrawCountdown()), 1000);
-    return () => clearInterval(timer);
+    // Auto-refresh every 5 minutes to keep results fresh
+    const refreshTimer = setInterval(() => hydrate(), 300000);
+    return () => {
+      clearInterval(timer);
+      clearInterval(refreshTimer);
+    };
   }, [hydrate]);
 
   const handleGenerate = async () => {
@@ -86,16 +97,34 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
 
   return (
     <div className="flex h-full flex-col bg-background-light dark:bg-background-dark overflow-hidden text-text-main-light dark:text-text-main-dark">
-      <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
+      <div className="flex-1 overflow-y-auto no-scrollbar pb-32 relative">
+        
+        {/* Update Notification Overlay */}
+        <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-[60] transition-all duration-500 pointer-events-none ${showUpdateToast ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+          <div className="bg-black/80 dark:bg-white/90 backdrop-blur-md text-white dark:text-black px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 border border-white/10">
+            <span className="material-symbols-outlined text-sm animate-bounce text-primary">cloud_done</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Datos Sincronizados</span>
+          </div>
+        </div>
+
         <div className="bg-primary/20 dark:bg-primary/10 px-6 py-10 rounded-b-[3rem] relative shadow-sm">
           <div className="flex justify-between items-center mb-8">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-3xl text-neutral-900 dark:text-primary">raven</span>
               <h1 className="text-xl font-black tracking-tight">Guácharo AI</h1>
             </div>
-            <button onClick={toggleDarkMode} className="size-10 rounded-full bg-white/20 dark:bg-black/20 backdrop-blur-md flex items-center justify-center">
-              <span className="material-symbols-outlined">{isDarkMode ? 'light_mode' : 'dark_mode'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+               <button 
+                onClick={() => hydrate()}
+                className={`size-10 rounded-full bg-white/20 dark:bg-black/20 backdrop-blur-md flex items-center justify-center transition-transform active:rotate-180 ${fetchingReal ? 'animate-spin' : ''}`}
+                disabled={fetchingReal}
+              >
+                <span className="material-symbols-outlined text-xl">refresh</span>
+              </button>
+              <button onClick={toggleDarkMode} className="size-10 rounded-full bg-white/20 dark:bg-black/20 backdrop-blur-md flex items-center justify-center">
+                <span className="material-symbols-outlined">{isDarkMode ? 'light_mode' : 'dark_mode'}</span>
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-col gap-1">
@@ -106,20 +135,37 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
             </div>
           </div>
 
-          <div className="mt-8 bg-white/50 dark:bg-white/5 backdrop-blur-xl rounded-3xl p-4 border border-white/20 shadow-lg">
+          <div className={`mt-8 transition-all duration-700 ${showUpdateToast ? 'ring-2 ring-primary ring-offset-4 ring-offset-background-light dark:ring-offset-background-dark scale-[1.02]' : ''} bg-white/50 dark:bg-white/5 backdrop-blur-xl rounded-3xl p-4 border border-white/20 shadow-lg relative overflow-hidden group`}>
+             {/* Subtle scanline animation when fetching */}
+             {fetchingReal && (
+               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent -translate-x-full animate-[shimmer_2s_infinite] pointer-events-none"></div>
+             )}
+             
              <div className="flex items-center justify-between mb-4">
-               <h3 className="text-[10px] font-black uppercase tracking-widest opacity-60">Último Resultado Real</h3>
-               {fetchingReal && <div className="size-2 bg-primary rounded-full animate-pulse"></div>}
+               <div className="flex items-center gap-2">
+                <h3 className="text-[10px] font-black uppercase tracking-widest opacity-60">Último Resultado Real</h3>
+                {showUpdateToast && <span className="text-[8px] font-black text-primary bg-black px-1 rounded animate-pulse">NUEVO</span>}
+               </div>
+               <div className="flex items-center gap-1.5">
+                  <span className="text-[8px] font-bold opacity-40">{lastUpdate && `ACT: ${lastUpdate}`}</span>
+                  <div className={`size-2 rounded-full ${fetchingReal ? 'bg-primary animate-pulse' : 'bg-green-500'} shadow-[0_0_8px_rgba(34,197,94,0.4)]`}></div>
+               </div>
              </div>
+             
              {lastCompletedDraw ? (
-               <div className="flex items-center gap-4">
-                 <div className="size-14 rounded-2xl bg-white dark:bg-surface-dark flex items-center justify-center text-3xl shadow-sm border border-black/5">
+               <div className="flex items-center gap-4 relative">
+                 <div className="size-14 rounded-2xl bg-white dark:bg-surface-dark flex items-center justify-center text-3xl shadow-sm border border-black/5 group-hover:rotate-6 transition-transform">
                    {lastCompletedDraw.animal?.emoji}
                  </div>
                  <div>
                    <h4 className="font-black text-lg uppercase tracking-tight">{lastCompletedDraw.animal?.name}</h4>
                    <p className="text-xs font-bold text-primary-dark dark:text-primary"># {lastCompletedDraw.animal?.number} • {lastCompletedDraw.label}</p>
                  </div>
+                 {showUpdateToast && (
+                   <div className="absolute -right-2 top-0">
+                      <span className="material-symbols-outlined text-primary text-xl icon-filled animate-ping">verified</span>
+                   </div>
+                 )}
                </div>
              ) : (
                <div className="h-14 flex items-center opacity-30 italic text-sm font-medium">Sincronizando oráculo...</div>
@@ -217,6 +263,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
         </div>
       </div>
       <Navbar activeView={View.DASHBOARD} onNavigate={onNavigate} />
+      
+      <style>{`
+        @keyframes shimmer {
+          100% {
+            transform: translateX(100%);
+          }
+        }
+      `}</style>
     </div>
   );
 };

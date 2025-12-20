@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
-import { View } from '../types';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { View, Animal } from '../types';
 import Navbar from './Navbar';
 import { fetchExtendedHistory } from '../services/geminiService';
+import { ANIMALS } from '../constants';
 
 interface HistoryProps {
   onNavigate: (view: View) => void;
@@ -13,71 +14,165 @@ const History: React.FC<HistoryProps> = ({ onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const [sources, setSources] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'list' | 'data'>('list');
+  
+  // Estados para filtros
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterDate, setFilterDate] = useState('');
+  const [selectedAnimalId, setSelectedAnimalId] = useState<string | null>(null);
+  
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
+  const loadData = async (force: boolean = false) => {
+    if (force) localStorage.removeItem('guacharo_last_fetch_v4');
+    setLoading(true);
+    try {
       const data = await fetchExtendedHistory();
-      // Sort history by date and hour descending
       const sortedHistory = (data.history || []).sort((a: any, b: any) => {
         const dateA = new Date(`${a.date}T${a.hour}`).getTime();
         const dateB = new Date(`${b.date}T${b.hour}`).getTime();
         return dateB - dateA;
       });
       setHistory(sortedHistory);
-      setSources(data.sources);
+      setSources(data.sources || []);
+    } catch (e) {
+      console.error("Error loading history:", e);
+    } finally {
       setLoading(false);
-    };
-    load();
+    }
+  };
+
+  useEffect(() => {
+    loadData();
   }, []);
+
+  // Lógica de filtrado computada
+  const filteredHistory = useMemo(() => {
+    return history.filter(item => {
+      const animalName = (item.animalData?.name || item.animal || "").toLowerCase();
+      const animalNum = (item.animalData?.number || item.number || "").toString();
+      const animalId = item.animalData?.id || item.number;
+
+      const matchesSearch = searchTerm 
+        ? (animalName.includes(searchTerm.toLowerCase()) || animalNum.includes(searchTerm))
+        : true;
+        
+      const matchesDate = filterDate ? item.date === filterDate : true;
+      const matchesAnimal = selectedAnimalId ? animalId === selectedAnimalId : true;
+      
+      return matchesSearch && matchesDate && matchesAnimal;
+    });
+  }, [history, searchTerm, filterDate, selectedAnimalId]);
 
   const exportAsJSON = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(history, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `guacharo_archive_${new Date().toISOString().split('T')[0]}.json`);
+    downloadAnchorNode.setAttribute("download", `guacharo_backup_${new Date().toISOString().split('T')[0]}.json`);
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
   };
 
-  const exportAsCSV = () => {
-    const headers = ["Fecha", "Hora", "Animal", "Numero"];
-    const rows = history.map(item => [item.date, item.hour, item.animal, item.number]);
-    const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "guacharo_database_export.csv");
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterDate('');
+    setSelectedAnimalId(null);
+  };
+
+  const toggleAnimalFilter = (id: string) => {
+    setSelectedAnimalId(selectedAnimalId === id ? null : id);
   };
 
   return (
     <div className="flex h-full flex-col bg-background-light dark:bg-background-dark overflow-hidden">
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
-        <header className="sticky top-0 z-50 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-md px-6 pt-10 pb-6 flex items-center justify-between border-b border-black/5">
-          <div>
-            <h2 className="text-xl font-black">Base de Datos</h2>
-            <p className="text-[10px] text-text-sub-light dark:text-text-sub-dark font-bold uppercase tracking-widest">Sincronización de 60 Sorteos</p>
-          </div>
-          <div className="flex gap-2">
-            <button 
-              onClick={exportAsCSV}
-              className="size-10 rounded-full bg-green-500/10 text-green-700 dark:text-green-400 flex items-center justify-center hover:bg-green-500/20 transition-all"
-              title="Descargar CSV"
+        <header className="sticky top-0 z-50 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-md border-b border-black/5">
+          <div className="px-6 pt-10 pb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-black">Base de Datos</h2>
+                <p className="text-[10px] text-text-sub-light dark:text-text-sub-dark font-bold uppercase tracking-widest">
+                  {loading ? 'Sincronizando...' : `${history.length} Registros Totales`}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => loadData(true)}
+                  className={`size-10 rounded-full bg-black/5 dark:bg-white/5 flex items-center justify-center transition-all ${loading ? 'animate-spin opacity-50' : 'active:scale-90'}`}
+                  disabled={loading}
+                >
+                  <span className="material-symbols-outlined text-xl">sync</span>
+                </button>
+                <button 
+                  onClick={exportAsJSON}
+                  className="size-10 rounded-full bg-primary/20 text-yellow-700 dark:text-primary flex items-center justify-center hover:scale-105 transition-transform"
+                >
+                  <span className="material-symbols-outlined text-xl">database</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Barra de Búsqueda y Fecha */}
+            <div className="flex gap-2 items-center mb-4">
+              <div className="relative flex-1">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-sm opacity-40">search</span>
+                <input 
+                  type="text" 
+                  placeholder="Buscar por nombre o número..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-black/5 dark:bg-white/5 border-none rounded-xl py-2.5 pl-9 pr-4 text-xs font-bold focus:ring-1 focus:ring-primary transition-all"
+                />
+              </div>
+              <div className="relative">
+                 <input 
+                  type="date" 
+                  value={filterDate}
+                  onChange={(e) => setFilterDate(e.target.value)}
+                  className="bg-black/5 dark:bg-white/5 border-none rounded-xl py-2.5 px-3 text-[10px] font-black focus:ring-1 focus:ring-primary w-28 appearance-none"
+                />
+              </div>
+            </div>
+
+            {/* Carrusel de Animales para Filtrado Rápido */}
+            <div 
+              ref={scrollRef}
+              className="flex gap-2 overflow-x-auto no-scrollbar pb-2 mask-linear-right"
             >
-              <span className="material-symbols-outlined text-xl">file_download</span>
-            </button>
-            <button 
-              onClick={exportAsJSON}
-              className="size-10 rounded-full bg-primary/20 text-yellow-700 dark:text-primary flex items-center justify-center hover:scale-105 transition-transform"
-              title="Descargar JSON"
-            >
-              <span className="material-symbols-outlined text-xl">database</span>
-            </button>
+              {ANIMALS.map((animal) => (
+                <button
+                  key={animal.id}
+                  onClick={() => toggleAnimalFilter(animal.id)}
+                  className={`shrink-0 flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
+                    selectedAnimalId === animal.id 
+                      ? 'bg-primary border-primary scale-110 shadow-md' 
+                      : 'bg-white dark:bg-surface-dark border-black/5 opacity-60'
+                  }`}
+                >
+                  <span className="text-lg">{animal.emoji}</span>
+                  <span className={`text-[8px] font-black ${selectedAnimalId === animal.id ? 'text-black' : ''}`}>
+                    {animal.number}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
+          
+          {/* Indicador de Resultados Filtrados */}
+          {(searchTerm || filterDate || selectedAnimalId) && (
+            <div className="px-6 py-2 bg-primary/10 flex items-center justify-between border-t border-primary/20">
+              <p className="text-[10px] font-black uppercase tracking-tight">
+                {filteredHistory.length} resultados encontrados
+              </p>
+              <button 
+                onClick={clearFilters}
+                className="flex items-center gap-1 text-[10px] font-black text-red-500"
+              >
+                <span className="material-symbols-outlined text-sm">filter_alt_off</span>
+                LIMPIAR
+              </button>
+            </div>
+          )}
         </header>
 
         <div className="px-6 py-4">
@@ -86,27 +181,27 @@ const History: React.FC<HistoryProps> = ({ onNavigate }) => {
               onClick={() => setActiveTab('list')}
               className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${activeTab === 'list' ? 'bg-white dark:bg-surface-dark shadow-sm' : 'opacity-40'}`}
             >
-              REGISTRO VISUAL
+              VISTA DE LISTADO
             </button>
             <button 
               onClick={() => setActiveTab('data')}
               className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${activeTab === 'data' ? 'bg-white dark:bg-surface-dark shadow-sm' : 'opacity-40'}`}
             >
-              API & METADATA
+              FUENTES DE DATOS
             </button>
           </div>
 
           {loading ? (
             <div className="flex flex-col items-center justify-center py-32 gap-4">
               <div className="size-14 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-xs font-black text-text-sub-light animate-pulse uppercase tracking-widest">Indexando Sorteos Reales...</p>
+              <p className="text-xs font-black text-text-sub-light animate-pulse uppercase tracking-widest">Sincronizando Historial...</p>
             </div>
           ) : activeTab === 'list' ? (
             <div className="space-y-3">
-              {history.length > 0 ? (
-                history.map((item, idx) => (
-                  <div key={idx} className="bg-white dark:bg-surface-dark border border-black/5 rounded-2xl p-4 flex items-center gap-4 shadow-sm group">
-                    <div className="size-12 rounded-xl bg-background-light dark:bg-background-dark flex items-center justify-center text-2xl group-hover:bg-primary/10 transition-colors">
+              {filteredHistory.length > 0 ? (
+                filteredHistory.map((item, idx) => (
+                  <div key={idx} className="bg-white dark:bg-surface-dark border border-black/5 rounded-2xl p-4 flex items-center gap-4 shadow-sm group hover:border-primary/30 transition-all animate-in fade-in duration-300">
+                    <div className="size-12 rounded-xl bg-background-light dark:bg-background-dark flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
                       {item.animalData?.emoji || '💠'}
                     </div>
                     <div className="flex-1">
@@ -115,14 +210,26 @@ const History: React.FC<HistoryProps> = ({ onNavigate }) => {
                         <span className="text-[9px] font-black text-white bg-black/80 dark:bg-white/20 px-1.5 py-0.5 rounded">{item.hour}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <p className="text-xs font-bold text-primary-dark dark:text-primary"># {item.number}</p>
-                        <p className="text-[9px] font-black opacity-30">{item.date}</p>
+                        <p className="text-xs font-bold text-primary-dark dark:text-primary"># {item.animalData?.number || item.number}</p>
+                        <p className="text-[9px] font-black opacity-30 tracking-tight">
+                          {new Date(item.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </p>
                       </div>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-center py-20 opacity-50 font-black text-xs">Error: No data records found.</div>
+                <div className="flex flex-col items-center justify-center py-20 text-center px-10">
+                  <span className="material-symbols-outlined text-5xl opacity-20 mb-4">search_off</span>
+                  <p className="font-black text-sm uppercase opacity-40">Sin coincidencias</p>
+                  <p className="text-xs font-medium opacity-30 mt-2">Prueba cambiando el animal o la fecha seleccionada.</p>
+                  <button 
+                    onClick={clearFilters}
+                    className="mt-6 px-6 py-3 bg-primary text-black rounded-full font-black text-xs shadow-lg active:scale-95 transition-all"
+                  >
+                    RESTABLECER TODO
+                  </button>
+                </div>
               )}
             </div>
           ) : (
@@ -130,57 +237,29 @@ const History: React.FC<HistoryProps> = ({ onNavigate }) => {
               <div className="bg-black/5 dark:bg-white/5 p-4 rounded-2xl border border-primary/20">
                 <div className="flex items-center gap-2 mb-4">
                   <span className="material-symbols-outlined text-green-500 icon-filled text-sm">verified_user</span>
-                  <h3 className="text-[10px] font-black uppercase tracking-widest">Nodos de Datos Verificados</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-widest">Nodos de Verificación</h3>
                 </div>
                 <div className="space-y-2">
                   {sources.length > 0 ? sources.map((s, i) => (
                     <a key={i} href={s.uri} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 bg-white dark:bg-surface-dark rounded-xl border border-black/5 hover:border-primary/50 transition-all shadow-sm">
-                      <span className="material-symbols-outlined text-primary text-[18px]">hub</span>
+                      <span className="material-symbols-outlined text-primary text-[18px]">public</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] font-black truncate">{s.title}</p>
                         <p className="text-[8px] text-text-sub-light truncate opacity-60">{s.uri}</p>
                       </div>
-                      <span className="material-symbols-outlined text-[14px] opacity-30">link</span>
+                      <span className="material-symbols-outlined text-[14px] opacity-30">open_in_new</span>
                     </a>
                   )) : (
-                    <p className="text-[10px] opacity-50 italic">Cargando oráculos de red...</p>
+                    <p className="text-[10px] opacity-50 italic px-2">Cargando fuentes...</p>
                   )}
                 </div>
               </div>
 
-              <div className="bg-[#0c0c0c] text-primary font-mono text-[9px] p-5 rounded-3xl overflow-hidden border border-primary/20 shadow-2xl">
-                <div className="flex justify-between items-center mb-4 border-b border-primary/10 pb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="size-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span className="font-black uppercase tracking-tighter text-[10px]">API ENDPOINT: /v1/history</span>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      navigator.clipboard.writeText(JSON.stringify(history, null, 2));
-                    }} 
-                    className="text-[8px] border border-primary/40 px-3 py-1 rounded-full uppercase hover:bg-primary hover:text-black transition-all"
-                  >
-                    Copy Object
-                  </button>
-                </div>
+              <div className="bg-[#0c0c0c] text-primary font-mono text-[9px] p-5 rounded-3xl overflow-hidden border border-primary/20">
+                <p className="mb-4 border-b border-primary/10 pb-3 font-black uppercase text-[10px]">JSON DATA STREAM</p>
                 <div className="max-h-[260px] overflow-y-auto no-scrollbar opacity-80">
-                  <pre className="whitespace-pre-wrap">{JSON.stringify(history.slice(0, 5), null, 2)}</pre>
-                  <div className="mt-4 border-t border-primary/10 pt-4 text-center">
-                    <p className="opacity-40 uppercase tracking-[0.2em] text-[7px] font-black">
-                      Mostrando 5 de {history.length} objetos de datos
-                    </p>
-                  </div>
+                  <pre className="whitespace-pre-wrap">{JSON.stringify(history.slice(0, 3), null, 2)}</pre>
                 </div>
-              </div>
-
-              <div className="p-5 rounded-2xl bg-yellow-500/5 border border-yellow-500/10">
-                <h4 className="text-[10px] font-black uppercase mb-2 flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-xs">info</span> 
-                  Protocolo de Transparencia
-                </h4>
-                <p className="text-[10px] text-text-sub-light leading-relaxed font-medium">
-                  Este historial es recolectado en tiempo real desde los servidores de resultados nacionales. Cada entrada está vinculada a una firma de timestamp oficial proporcionada por los agregadores de lotería. Si detecta una discrepancia, consulte directamente la fuente del oráculo.
-                </p>
               </div>
             </div>
           )}
