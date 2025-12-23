@@ -1,192 +1,144 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, Animal } from '../types';
+import { View, LotteryId } from '../types';
 import Navbar from './Navbar';
-// Importing TARGET_URL to resolve reference errors
-import { fetchExtendedHistory, TARGET_URL } from '../services/geminiService';
+import { fetchExtendedHistory } from '../services/geminiService';
 import { ANIMALS } from '../constants';
 
 interface HistoryProps {
+  lotteryId: LotteryId;
   onNavigate: (view: View) => void;
 }
 
 const PAGE_SIZE = 20;
 
-const History: React.FC<HistoryProps> = ({ onNavigate }) => {
+const History: React.FC<HistoryProps> = ({ lotteryId, onNavigate }) => {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sources, setSources] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'list' | 'data'>('list');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterDate, setFilterDate] = useState('');
-  const [selectedAnimalId, setSelectedAnimalId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState('');
   
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const isLottoActivo = lotteryId === 'LOTTO_ACTIVO';
+  const accentColor = isLottoActivo ? 'text-blue-500' : 'text-primary';
+  const accentBg = isLottoActivo ? 'bg-blue-500/10' : 'bg-primary/10';
 
-  const loadData = async (force: boolean = false) => {
-    if (force) localStorage.removeItem('guacharo_last_fetch_v4');
+  const loadData = async (force = false) => {
+    if (force) localStorage.removeItem(`last_fetch_${lotteryId}_v4`);
     setLoading(true);
     try {
-      const data = await fetchExtendedHistory();
-      const sortedHistory = (data.history || []).sort((a: any, b: any) => {
-        const dateA = new Date(`${a.date}T${a.hour}`).getTime();
-        const dateB = new Date(`${b.date}T${b.hour}`).getTime();
-        return dateB - dateA;
+      const data = await fetchExtendedHistory(lotteryId);
+      const sorted = (data.history || []).sort((a: any, b: any) => {
+        const timeA = new Date(`${a.date}T${a.hour}`).getTime();
+        const timeB = new Date(`${b.date}T${b.hour}`).getTime();
+        return timeB - timeA;
       });
-      setHistory(sortedHistory);
-      setSources(data.sources || []);
+      setHistory(sorted);
       setVisibleCount(PAGE_SIZE);
-    } catch (e) {
-      console.error("Error loading history:", e);
-    } finally {
-      setLoading(false);
+    } catch (e) { 
+      console.error(e); 
+    } finally { 
+      setLoading(false); 
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, [lotteryId]);
 
   const filteredHistory = useMemo(() => {
     return history.filter(item => {
-      const animalName = (item.animalData?.name || item.animal || "").toLowerCase();
-      const animalNum = (item.animalData?.number || item.number || "").toString();
-      const animalId = item.animalData?.id || item.number;
-
-      const matchesSearch = searchTerm 
-        ? (animalName.includes(searchTerm.toLowerCase()) || animalNum.includes(searchTerm))
-        : true;
-        
-      const matchesDate = filterDate ? item.date === filterDate : true;
-      const matchesAnimal = selectedAnimalId ? animalId === selectedAnimalId : true;
-      
-      return matchesSearch && matchesDate && matchesAnimal;
+      const name = (item.animalData?.name || item.animal || "").toLowerCase();
+      const num = (item.animalData?.number || item.number || "").toString();
+      const dateMatch = selectedDate ? item.date === selectedDate : true;
+      const searchMatch = name.includes(searchTerm.toLowerCase()) || num.includes(searchTerm);
+      return dateMatch && searchMatch;
     });
-  }, [history, searchTerm, filterDate, selectedAnimalId]);
+  }, [history, searchTerm, selectedDate]);
 
-  const displayedHistory = useMemo(() => {
-    return filteredHistory.slice(0, visibleCount);
-  }, [filteredHistory, visibleCount]);
-
-  const loadMore = () => {
-    setVisibleCount(prev => prev + PAGE_SIZE);
-  };
-
-  const clearFilters = () => {
-    setSearchTerm('');
-    setFilterDate('');
-    setSelectedAnimalId(null);
-    setVisibleCount(PAGE_SIZE);
-  };
+  const displayedHistory = filteredHistory.slice(0, visibleCount);
 
   return (
     <div className="flex h-full flex-col bg-background-light dark:bg-background-dark overflow-hidden">
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
-        <header className="sticky top-0 z-50 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-md border-b border-black/5">
-          <div className="px-6 pt-10 pb-4">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-xl font-black">Base de Datos</h2>
-                <p className="text-[10px] text-text-sub-light dark:text-text-sub-dark font-bold uppercase tracking-widest">
-                  {loading ? 'Sincronizando...' : `${history.length} Sorteos Extraídos`}
-                </p>
-              </div>
-              <button 
-                onClick={() => loadData(true)}
-                className={`size-10 rounded-full bg-black/5 dark:bg-white/5 flex items-center justify-center transition-all ${loading ? 'animate-spin opacity-50' : 'active:scale-90'}`}
-              >
-                <span className="material-symbols-outlined text-xl">sync</span>
-              </button>
+        <header className="sticky top-0 z-50 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-md px-6 pt-10 pb-4 border-b border-black/5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-black tracking-tight">Historial {isLottoActivo ? 'Lotto Activo' : 'Guácharo'}</h2>
+              <p className="text-[10px] font-black uppercase opacity-40 tracking-widest">
+                {loading ? 'Sincronizando...' : `${filteredHistory.length} Sorteos filtrados`}
+              </p>
             </div>
+            <button 
+              onClick={() => loadData(true)} 
+              className={`size-10 rounded-full ${accentBg} flex items-center justify-center transition-transform active:scale-90`}
+            >
+              <span className={`material-symbols-outlined text-xl ${accentColor} ${loading ? 'animate-spin' : ''}`}>sync</span>
+            </button>
+          </div>
 
-            <div className="flex gap-2 items-center mb-4">
-              <div className="relative flex-1">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-sm opacity-40">search</span>
-                <input 
-                  type="text" 
-                  placeholder="Buscar animal..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-black/5 dark:bg-white/5 border-none rounded-xl py-2.5 pl-9 pr-4 text-xs font-bold focus:ring-1 focus:ring-primary"
-                />
-              </div>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-sm opacity-30">search</span>
               <input 
-                type="date" 
-                value={filterDate}
-                onChange={(e) => setFilterDate(e.target.value)}
-                className="bg-black/5 dark:bg-white/5 border-none rounded-xl py-2.5 px-3 text-[10px] font-black w-28 appearance-none"
+                type="text" 
+                placeholder="Buscar animal..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-black/5 dark:bg-white/5 border-none rounded-xl py-2.5 pl-9 pr-4 text-xs font-bold focus:ring-1 focus:ring-primary transition-all"
               />
             </div>
-
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-              {ANIMALS.map((animal) => (
-                <button
-                  key={animal.id}
-                  onClick={() => setSelectedAnimalId(selectedAnimalId === animal.id ? null : animal.id)}
-                  className={`shrink-0 flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
-                    selectedAnimalId === animal.id ? 'bg-primary border-primary scale-105' : 'bg-white dark:bg-surface-dark border-black/5 opacity-60'
-                  }`}
-                >
-                  <span className="text-lg">{animal.emoji}</span>
-                  <span className="text-[8px] font-black">{animal.number}</span>
-                </button>
-              ))}
-            </div>
+            <input 
+              type="date" 
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-black/5 dark:bg-white/5 border-none rounded-xl py-2.5 px-3 text-[10px] font-black w-28 appearance-none focus:ring-1 focus:ring-primary"
+            />
           </div>
         </header>
 
-        <div className="px-6 py-4">
-          <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-xl mb-6">
-            <button onClick={() => setActiveTab('list')} className={`flex-1 py-2 text-[10px] font-black rounded-lg ${activeTab === 'list' ? 'bg-white dark:bg-surface-dark shadow-sm' : 'opacity-40'}`}>LISTADO</button>
-            <button onClick={() => setActiveTab('data')} className={`flex-1 py-2 text-[10px] font-black rounded-lg ${activeTab === 'data' ? 'bg-white dark:bg-surface-dark shadow-sm' : 'opacity-40'}`}>FUENTES</button>
-          </div>
-
+        <div className="px-6 py-6 space-y-3">
           {loading ? (
-            <div className="flex flex-col items-center py-20 gap-4">
-              <div className="size-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-[10px] font-black opacity-40">Consultando loteriadehoy.com...</p>
+            <div className="py-20 flex flex-col items-center gap-4">
+              <div className={`size-12 border-4 ${accentColor.replace('text-', 'border-')} border-t-transparent rounded-full animate-spin`}></div>
+              <p className="text-[10px] font-black opacity-40 uppercase tracking-widest">Extrayendo datos de la nube...</p>
             </div>
-          ) : activeTab === 'list' ? (
-            <div className="space-y-3">
+          ) : displayedHistory.length > 0 ? (
+            <>
               {displayedHistory.map((item, idx) => (
-                <div key={idx} className="bg-white dark:bg-surface-dark border border-black/5 rounded-2xl p-4 flex items-center gap-4 animate-in fade-in duration-300">
-                  <div className="size-12 rounded-xl bg-background-light dark:bg-background-dark flex items-center justify-center text-2xl">
+                <div key={`${item.date}-${item.hour}-${idx}`} className="bg-white dark:bg-surface-dark border border-black/5 rounded-2xl p-4 flex items-center gap-4 shadow-sm hover:border-primary/20 transition-all animate-in fade-in duration-500">
+                  <div className="size-14 rounded-2xl bg-black/5 flex items-center justify-center text-3xl shrink-0">
                     {item.animalData?.emoji || '💠'}
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-black text-sm uppercase">{item.animalData?.name || item.animal}</h4>
-                      <span className="text-[9px] font-black bg-black/5 px-2 py-0.5 rounded">{item.hour}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <h4 className="font-black text-sm uppercase truncate">{item.animalData?.name || item.animal}</h4>
+                      <span className={`text-[9px] font-black ${accentBg} ${accentColor} px-2 py-0.5 rounded-lg`}>
+                        {item.hour}
+                      </span>
                     </div>
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-xs font-bold text-primary-dark"># {item.animalData?.number || item.number}</p>
-                      <p className="text-[9px] opacity-40 font-black">{item.date}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold opacity-60">Código {item.animalData?.number || item.number}</p>
+                      <p className="text-[9px] opacity-30 font-black">{item.date}</p>
                     </div>
                   </div>
                 </div>
               ))}
+              
               {visibleCount < filteredHistory.length && (
-                <button onClick={loadMore} className="w-full py-4 mt-2 border-2 border-dashed border-black/10 dark:border-white/10 rounded-2xl text-[10px] font-black uppercase opacity-60">
-                  Cargar más ({filteredHistory.length - visibleCount})
+                <button 
+                  onClick={() => setVisibleCount(v => v + PAGE_SIZE)} 
+                  className="w-full py-5 border-2 border-dashed border-black/10 dark:border-white/10 rounded-2xl text-[10px] font-black opacity-40 uppercase tracking-[0.2em] hover:opacity-100 hover:border-primary/50 transition-all active:scale-[0.98]"
+                >
+                  Cargar más registros ({filteredHistory.length - visibleCount})
                 </button>
               )}
-              {filteredHistory.length === 0 && (
-                <div className="text-center py-20 opacity-30">No hay registros para este filtro</div>
-              )}
-            </div>
+            </>
           ) : (
-            <div className="bg-black/5 dark:bg-white/5 p-4 rounded-2xl">
-              <h3 className="text-[10px] font-black mb-3 opacity-50 uppercase">Fuente de Verificación</h3>
-              {/* Using imported TARGET_URL here */}
-              <a href={TARGET_URL} target="_blank" className="flex items-center gap-3 p-3 bg-white dark:bg-surface-dark rounded-xl border border-black/5">
-                <span className="material-symbols-outlined text-primary">public</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-black truncate">Resultados Oficiales</p>
-                  <p className="text-[8px] opacity-50 truncate">{TARGET_URL}</p>
-                </div>
-              </a>
+            <div className="py-32 text-center opacity-30 flex flex-col items-center gap-4">
+              <span className="material-symbols-outlined text-6xl">database_off</span>
+              <div className="space-y-1">
+                <p className="text-sm font-black uppercase">Sin Resultados</p>
+                <p className="text-[10px]">Prueba ajustando los filtros de búsqueda o fecha.</p>
+              </div>
             </div>
           )}
         </div>

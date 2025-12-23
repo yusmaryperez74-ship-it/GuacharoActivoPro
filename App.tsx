@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Animal, Prediction } from './types';
+import { View, LotteryId } from './types';
 import Welcome from './components/Welcome';
 import Dashboard from './components/Dashboard';
 import History from './components/History';
@@ -9,6 +9,7 @@ import Premium from './components/Premium';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>(View.WELCOME);
+  const [selectedLottery, setSelectedLottery] = useState<LotteryId>('GUACHARO');
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   useEffect(() => {
@@ -33,14 +34,23 @@ const App: React.FC = () => {
         return <Welcome onStart={() => setCurrentView(View.DASHBOARD)} />;
       case View.DASHBOARD:
         return <Dashboard 
+          lotteryId={selectedLottery}
+          onLotteryChange={setSelectedLottery}
           onNavigate={(view) => setCurrentView(view)} 
           toggleDarkMode={toggleDarkMode} 
           isDarkMode={isDarkMode} 
         />;
       case View.HISTORY:
-        return <History onNavigate={(view) => setCurrentView(view)} />;
+        return <History 
+          lotteryId={selectedLottery}
+          onNavigate={(view) => setCurrentView(view)} 
+        />;
       case View.TRENDS:
-        return <Trends onNavigate={(view) => setCurrentView(view)} onBack={() => setCurrentView(View.DASHBOARD)} />;
+        return <Trends 
+          lotteryId={selectedLottery}
+          onNavigate={(view) => setCurrentView(view)} 
+          onBack={() => setCurrentView(View.DASHBOARD)} 
+        />;
       case View.PREMIUM:
         return <Premium onClose={() => setCurrentView(View.DASHBOARD)} />;
       default:

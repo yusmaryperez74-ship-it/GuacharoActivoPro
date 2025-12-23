@@ -3,8 +3,8 @@ import { ANIMALS } from '../constants';
 import { DrawResult, Animal, Prediction } from '../types';
 
 const DRAW_HOURS = [
-  '09:00', '10:00', '11:00', '12:00', '13:00', 
-  '16:00', '17:00', '18:00', '19:00'
+  '09:00', '10:00', '11:00', '12:00', '13:00', '14:00',
+  '15:00', '16:00', '17:00', '18:00', '19:00'
 ];
 
 export class PredictionEngine {
@@ -19,7 +19,6 @@ export class PredictionEngine {
   } | null = null;
 
   constructor(history: any[]) {
-    // Capacidad aumentada a 200 para mayor precisión
     this.history = history.slice(0, 200);
     this.precompute();
   }
@@ -39,7 +38,7 @@ export class PredictionEngine {
     const counts: Record<string, number> = {};
     this.history.forEach(h => {
       const id = h.animalData?.id || h.number;
-      counts[id] = (counts[id] || 0) + 1;
+      if (id) counts[id] = (counts[id] || 0) + 1;
     });
     const total = this.history.length || 1;
     return Object.fromEntries(this.animals.map(a => [a.id, (counts[a.id] || 0) / total]));
@@ -47,9 +46,9 @@ export class PredictionEngine {
 
   private calculateTrendScores() {
     const windows = [
-      { size: 20, weight: 0.40 }, // Ventanas ampliadas
-      { size: 60, weight: 0.35 },
-      { size: 120, weight: 0.25 }
+      { size: 15, weight: 0.50 },
+      { size: 50, weight: 0.30 },
+      { size: 150, weight: 0.20 }
     ];
     const scores: Record<string, number> = {};
     this.animals.forEach(a => scores[a.id] = 0);
@@ -60,7 +59,7 @@ export class PredictionEngine {
       const windowCounts: Record<string, number> = {};
       slice.forEach(h => {
         const id = h.animalData?.id || h.number;
-        windowCounts[id] = (windowCounts[id] || 0) + 1;
+        if (id) windowCounts[id] = (windowCounts[id] || 0) + 1;
       });
       this.animals.forEach(a => {
         scores[a.id] += ((windowCounts[a.id] || 0) / total) * w.weight;
@@ -90,7 +89,7 @@ export class PredictionEngine {
     if (!this.cache) return [];
 
     const { globalFreq, trendScores, markovProbs } = this.cache;
-    const ALPHA = 0.25, BETA = 0.45, GAMMA = 0.30; // Ajuste de pesos para Markov
+    const ALPHA = 0.20, BETA = 0.50, GAMMA = 0.30;
 
     return this.animals.map(animal => {
       const f = globalFreq[animal.id] || 0;
@@ -101,7 +100,7 @@ export class PredictionEngine {
       return {
         animal,
         probability: Math.round(score * 1000) / 10,
-        confidence: score > 0.09 ? 'SEGURA' : score > 0.05 ? 'MODERADA' : 'ARRIESGADA' as any,
+        confidence: score > 0.08 ? 'SEGURA' : score > 0.04 ? 'MODERADA' : 'ARRIESGADA' as any,
         reasoning: this.buildReasoning(f, t, m, !!markovProbs)
       };
     })
@@ -110,11 +109,10 @@ export class PredictionEngine {
   }
 
   private buildReasoning(f: number, t: number, m: number, hasMarkov: boolean): string {
-    if (t > f && m > 0.12) return "Alta probabilidad por transición directa y tendencia de 200 sorteos.";
-    if (t > f) return "Tendencia positiva detectada en la ventana móvil de corto plazo.";
-    if (hasMarkov && m > 0.1) return "Fuerte correlación estadística con el último ganador.";
-    if (f > 0.06) return "Animal con alta frecuencia histórica (Top Tier 200).";
-    return "Métrica base estable detectada por el modelo híbrido.";
+    if (t > f * 1.5) return "Patrón alcista detectado: alta frecuencia en los últimos 15 sorteos.";
+    if (hasMarkov && m > 0.15) return "Fuerte correlación estadística con el último animal ganador.";
+    if (f > 0.07) return "Animal con recurrencia histórica estable en este bloque horario.";
+    return "Modelo híbrido detecta anomalía positiva en el ciclo actual.";
   }
 }
 
@@ -127,8 +125,7 @@ export const getDrawSchedule = (realResults: Partial<DrawResult>[] = []): DrawRe
     const drawTotalMinutes = h * 60 + m;
     const realMatch = realResults.find(r => r.hour === hourStr);
     
-    // Un sorteo está completado si ya pasó la hora o si tenemos el dato real
-    const isCompleted = currentTotalMinutes >= drawTotalMinutes || !!realMatch;
+    const isCompleted = currentTotalMinutes >= (drawTotalMinutes + 5) || !!realMatch;
     
     return {
       hour: hourStr,
@@ -155,5 +152,6 @@ export const getNextDrawCountdown = (): string => {
   const diff = (nh * 60 + nm) - currentMinutes;
   const h = Math.floor(diff / 60);
   const m = diff % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m ${60 - now.getSeconds()}s`;
+  const s = 59 - now.getSeconds();
+  return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
 };

@@ -7,6 +7,16 @@ export enum View {
   PREMIUM = 'PREMIUM'
 }
 
+export type LotteryId = 'GUACHARO' | 'LOTTO_ACTIVO';
+
+export interface LotteryConfig {
+  id: LotteryId;
+  name: string;
+  color: string;
+  url: string;
+  icon: string;
+}
+
 export interface Animal {
   id: string;
   name: string;
