@@ -7,9 +7,6 @@ const DRAW_HOURS = [
   '16:00', '17:00', '18:00', '19:00'
 ];
 
-/**
- * ENGINE: Statistical Prediction Engine (Optimized v4)
- */
 export class PredictionEngine {
   private history: any[] = [];
   private animals: Animal[] = ANIMALS;
@@ -22,7 +19,8 @@ export class PredictionEngine {
   } | null = null;
 
   constructor(history: any[]) {
-    this.history = history.slice(0, 100);
+    // Capacidad aumentada a 200 para mayor precisión
+    this.history = history.slice(0, 200);
     this.precompute();
   }
 
@@ -49,9 +47,9 @@ export class PredictionEngine {
 
   private calculateTrendScores() {
     const windows = [
-      { size: 10, weight: 0.40 },
-      { size: 30, weight: 0.35 },
-      { size: 60, weight: 0.25 }
+      { size: 20, weight: 0.40 }, // Ventanas ampliadas
+      { size: 60, weight: 0.35 },
+      { size: 120, weight: 0.25 }
     ];
     const scores: Record<string, number> = {};
     this.animals.forEach(a => scores[a.id] = 0);
@@ -92,7 +90,7 @@ export class PredictionEngine {
     if (!this.cache) return [];
 
     const { globalFreq, trendScores, markovProbs } = this.cache;
-    const ALPHA = 0.30, BETA = 0.45, GAMMA = 0.25;
+    const ALPHA = 0.25, BETA = 0.45, GAMMA = 0.30; // Ajuste de pesos para Markov
 
     return this.animals.map(animal => {
       const f = globalFreq[animal.id] || 0;
@@ -103,7 +101,7 @@ export class PredictionEngine {
       return {
         animal,
         probability: Math.round(score * 1000) / 10,
-        confidence: score > 0.08 ? 'SEGURA' : score > 0.04 ? 'MODERADA' : 'ARRIESGADA' as any,
+        confidence: score > 0.09 ? 'SEGURA' : score > 0.05 ? 'MODERADA' : 'ARRIESGADA' as any,
         reasoning: this.buildReasoning(f, t, m, !!markovProbs)
       };
     })
@@ -112,11 +110,11 @@ export class PredictionEngine {
   }
 
   private buildReasoning(f: number, t: number, m: number, hasMarkov: boolean): string {
-    if (t > f && m > 0.1) return "Tendencia alcista con fuerte correlación de transición.";
-    if (t > f) return "Tendencia alcista en sorteos recientes.";
-    if (hasMarkov && m > 0.1) return "Fuerte correlación de transición con el último resultado.";
-    if (f > 0.05) return "Alta recurrencia en el historial general.";
-    return "Patrón estadístico emergente detectado por el modelo híbrido.";
+    if (t > f && m > 0.12) return "Alta probabilidad por transición directa y tendencia de 200 sorteos.";
+    if (t > f) return "Tendencia positiva detectada en la ventana móvil de corto plazo.";
+    if (hasMarkov && m > 0.1) return "Fuerte correlación estadística con el último ganador.";
+    if (f > 0.06) return "Animal con alta frecuencia histórica (Top Tier 200).";
+    return "Métrica base estable detectada por el modelo híbrido.";
   }
 }
 
@@ -128,7 +126,9 @@ export const getDrawSchedule = (realResults: Partial<DrawResult>[] = []): DrawRe
     const [h, m] = hourStr.split(':').map(Number);
     const drawTotalMinutes = h * 60 + m;
     const realMatch = realResults.find(r => r.hour === hourStr);
-    const isCompleted = currentTotalMinutes >= drawTotalMinutes;
+    
+    // Un sorteo está completado si ya pasó la hora o si tenemos el dato real
+    const isCompleted = currentTotalMinutes >= drawTotalMinutes || !!realMatch;
     
     return {
       hour: hourStr,

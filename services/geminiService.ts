@@ -1,10 +1,9 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { ANIMALS } from '../constants';
-import { Prediction, DrawResult } from '../types';
+import { Prediction, DrawResult, Animal } from '../types';
 import { PredictionEngine } from './lotteryService';
 
-// Inicialización con named parameter
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const CACHE_KEYS = {
@@ -14,8 +13,32 @@ const CACHE_KEYS = {
 };
 
 /**
- * Utilidad para limpiar y parsear JSON de forma robusta
+ * Normaliza nombres de animales para un mapeo robusto.
+ * Maneja casos como "36-Culebra", "Culebra (36)", "05", "Leon", etc.
  */
+const findAnimalByFlexibleInput = (input: string): Animal | null => {
+  if (!input) return null;
+  const str = input.toString().trim();
+  
+  // Extraer solo números si existen (ej: "36-Culebra" -> "36")
+  const numMatch = str.match(/\d+/);
+  const extractedNum = numMatch ? numMatch[0].padStart(2, '0') : null;
+  
+  if (extractedNum) {
+    const byNum = ANIMALS.find(a => a.number === extractedNum || a.id === extractedNum);
+    if (byNum) return byNum;
+  }
+
+  // Búsqueda por nombre (fuzzy)
+  const cleanInput = str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, '');
+  const byName = ANIMALS.find(a => {
+    const cleanName = a.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, '');
+    return cleanName === cleanInput || cleanName.includes(cleanInput) || cleanInput.includes(cleanName);
+  });
+  
+  return byName || null;
+};
+
 const safeParseJSON = (text: string, fallback: any) => {
   try {
     const start = text.indexOf('{');
@@ -26,21 +49,11 @@ const safeParseJSON = (text: string, fallback: any) => {
     }
     return JSON.parse(text);
   } catch (e) {
-    console.warn("Error parseando JSON, usando fallback:", e);
     return fallback;
   }
 };
 
-/**
- * Genera el TOP 5 de animales con mayor probabilidad
- */
 export const generatePrediction = async (history: any[] = []): Promise<Prediction[]> => {
-  const cached = localStorage.getItem(CACHE_KEYS.PREDICTIONS);
-  if (cached && history.length > 0) {
-    const parsed = JSON.parse(cached);
-    if (parsed.historyLength === history.length && parsed.data.length === 5) return parsed.data;
-  }
-
   const engine = new PredictionEngine(history);
   const statsPredictions = engine.generatePredictions(5);
 
@@ -49,8 +62,8 @@ export const generatePrediction = async (history: any[] = []): Promise<Predictio
       model: "gemini-3-flash-preview",
       contents: `SISTEMA ANALÍTICO GUÁCHARO AI. 
                 DATOS ESTADÍSTICOS: ${statsPredictions.map(p => `${p.animal.name} (${p.probability}%)`).join(', ')}.
-                HISTORIAL: ${history.slice(0, 5).map(h => h.animalData?.name || h.animal).join(' -> ')}.
-                TAREA: Valida estos 5 resultados y provee razonamiento técnico profesional basado en ciencia de datos.`,
+                HISTORIAL RECIENTE: ${history.slice(0, 10).map(h => h.animalData?.name || h.animal).join(' -> ')}.
+                TAREA: Valida las probabilidades considerando el historial de 200 sorteos y las rachas actuales.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -71,145 +84,99 @@ export const generatePrediction = async (history: any[] = []): Promise<Predictio
             }
           }
         },
-        temperature: 0.2, // Ajustado para balancear razonamiento técnico
+        temperature: 0.3,
       }
     });
 
     const data = safeParseJSON(response.text || "", { predictions: [] });
-    
     const finalData = (data.predictions || []).slice(0, 5).map((p: any) => ({
-      animal: ANIMALS.find(a => a.id === p.animalId || a.number === p.animalId) || ANIMALS[0],
+      animal: findAnimalByFlexibleInput(p.animalId) || ANIMALS[0],
       probability: p.probability,
       confidence: p.confidence as any,
       reasoning: p.reasoning
     }));
 
-    if (finalData.length < 5) {
-      const existingIds = new Set(finalData.map((f: any) => f.animal.id));
-      const extra = statsPredictions.filter(sp => !existingIds.has(sp.animal.id)).slice(0, 5 - finalData.length);
-      finalData.push(...extra);
-    }
-
-    localStorage.setItem(CACHE_KEYS.PREDICTIONS, JSON.stringify({
-      data: finalData,
-      historyLength: history.length,
-      timestamp: Date.now()
-    }));
-
-    return finalData;
+    return finalData.length >= 5 ? finalData : statsPredictions.slice(0, 5);
   } catch (error) {
     return statsPredictions.slice(0, 5);
   }
 };
 
-/**
- * Obtiene resultados del día de hoy utilizando una ÚNICA fuente oficial para mayor velocidad.
- */
 export const fetchRealResults = async (): Promise<{ draws: Partial<DrawResult>[], sources: {uri: string, title: string}[] }> => {
   try {
     const today = new Date().toLocaleDateString('es-ES');
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `ACCESO RÁPIDO: Identifica la página OFICIAL de la lotería "Guácharo Activo" y extrae únicamente los resultados de HOY ${today}. 
-      REGLA: Usa solo UNA fuente (la más autoritativa). 
-      RETORNA JSON: { "draws": [{ "hour": "HH:mm", "animalName": "Nombre", "number": "00" }] }.`,
-      config: {
-        tools: [{ googleSearch: {} }],
-      },
+      contents: `IMPORTANTE: Necesito los resultados de la lotería "Guácharo Activo" para el día de HOY ${today}.
+      Busca en páginas de resultados y redes sociales.
+      FORMATO JSON ESTRICTO: { "draws": [{ "hour": "HH:mm", "animal": "Nombre del animal o número" }] }
+      Horarios válidos: 09:00, 10:00, 11:00, 12:00, 13:00, 16:00, 17:00, 18:00, 19:00.`,
+      config: { tools: [{ googleSearch: {} }] },
     });
 
     const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => ({
-      uri: c.web?.uri,
-      title: c.web?.title
-    })).filter((s: any) => s && s.uri).slice(0, 1) || [];
+      uri: c.web?.uri, title: c.web?.title
+    })).filter((s: any) => s && s.uri).slice(0, 3) || [];
 
     const data = safeParseJSON(response.text || "", { draws: [] });
-    
     const formattedDraws = (data.draws || []).map((d: any) => ({
       hour: d.hour,
-      animal: ANIMALS.find(a => a.name.toLowerCase() === (d.animalName || "").toLowerCase() || a.number === d.number?.toString().padStart(2, '0')) || null,
+      animal: findAnimalByFlexibleInput(d.animal),
       isCompleted: true
-    }));
+    })).filter((d: any) => d.animal !== null);
 
     return { draws: formattedDraws, sources };
   } catch (error) {
-    console.error("Error en fetchRealResults:", error);
     return { draws: [], sources: [] };
   }
 };
 
-/**
- * Obtiene historial extendido utilizando la fuente más completa disponible para minimizar latencia.
- */
 export const fetchExtendedHistory = async (): Promise<{ history: any[], sources: any[] }> => {
   const cachedHistory = localStorage.getItem(CACHE_KEYS.HISTORY);
   const lastFetch = localStorage.getItem(CACHE_KEYS.LAST_FETCH);
   
-  if (cachedHistory && lastFetch && (Date.now() - parseInt(lastFetch)) < 1800000) {
+  // Cache de 5 minutos para asegurar que los resultados nuevos aparezcan rápido
+  if (cachedHistory && lastFetch && (Date.now() - parseInt(lastFetch)) < 300000) {
     return { history: JSON.parse(cachedHistory), sources: [] };
   }
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `HISTORIAL RÁPIDO: Localiza el archivo oficial o la fuente más completa de resultados de "Guácharo Activo". 
-      Extrae los últimos 60 sorteos de UNA SOLA página confiable.
-      RETORNA JSON: { "history": [{ "date": "YYYY-MM-DD", "hour": "HH:mm", "animal": "Nombre", "number": "00" }] }.`,
-      config: {
-        tools: [{ googleSearch: {} }],
-      },
+      contents: `Extrae de forma exhaustiva los últimos 200 resultados de la lotería "Guácharo Activo".
+      Asegúrate de incluir los resultados más recientes de hoy y los días anteriores.
+      FORMATO JSON: { "history": [{ "date": "YYYY-MM-DD", "hour": "HH:mm", "animal": "Nombre", "number": "00" }] }`,
+      config: { tools: [{ googleSearch: {} }] },
     });
 
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => ({
-      uri: c.web?.uri,
-      title: c.web?.title
-    })).filter((s: any) => s && s.uri).slice(0, 1) || [];
-
     const data = safeParseJSON(response.text || "", { history: [] });
-    
-    let history = (data.history || []).map((item: any) => ({
+    const history = (data.history || []).map((item: any) => ({
       ...item,
-      animalData: ANIMALS.find(a => a.name.toLowerCase() === (item.animal || "").toLowerCase() || a.number === item.number?.toString().padStart(2, '0'))
+      animalData: findAnimalByFlexibleInput(item.animal || item.number)
     })).filter((h: any) => h.animalData);
 
-    if (history.length < 5) {
-      console.warn("Datos insuficientes, usando fallback");
-      history = generateFallbackHistory();
+    if (history.length > 0) {
+      localStorage.setItem(CACHE_KEYS.HISTORY, JSON.stringify(history));
+      localStorage.setItem(CACHE_KEYS.LAST_FETCH, Date.now().toString());
     }
-
-    localStorage.setItem(CACHE_KEYS.HISTORY, JSON.stringify(history));
-    localStorage.setItem(CACHE_KEYS.LAST_FETCH, Date.now().toString());
     
-    return { history, sources };
+    return { history: history.length > 0 ? history : (cachedHistory ? JSON.parse(cachedHistory) : generateFallbackHistory()), sources: [] };
   } catch (error) {
-    console.error("Error en fetchExtendedHistory:", error);
     return { history: cachedHistory ? JSON.parse(cachedHistory) : generateFallbackHistory(), sources: [] };
   }
 };
 
-/**
- * Generador de historial de respaldo con tipos explícitos para evitar errores de compilación.
- */
 function generateFallbackHistory(): any[] {
   const fallback: any[] = [];
-  const today = new Date();
   const hours = ['09:00', '10:00', '11:00', '12:00', '13:00', '16:00', '17:00', '18:00', '19:00'];
-  
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(today);
+  for (let i = 0; i < 25; i++) {
+    const d = new Date();
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-    
     hours.forEach(hour => {
       const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
-      fallback.push({
-        date: dateStr,
-        hour: hour,
-        animal: animal.name,
-        number: animal.number,
-        animalData: animal
-      });
+      fallback.push({ date: dateStr, hour, animal: animal.name, number: animal.number, animalData: animal });
     });
   }
-  return fallback.slice(0, 60);
+  return fallback.slice(0, 200);
 }

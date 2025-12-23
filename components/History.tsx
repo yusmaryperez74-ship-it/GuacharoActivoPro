@@ -9,11 +9,14 @@ interface HistoryProps {
   onNavigate: (view: View) => void;
 }
 
+const PAGE_SIZE = 20;
+
 const History: React.FC<HistoryProps> = ({ onNavigate }) => {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sources, setSources] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'list' | 'data'>('list');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   
   // Estados para filtros
   const [searchTerm, setSearchTerm] = useState('');
@@ -34,6 +37,7 @@ const History: React.FC<HistoryProps> = ({ onNavigate }) => {
       });
       setHistory(sortedHistory);
       setSources(data.sources || []);
+      setVisibleCount(PAGE_SIZE); // Reset pagination on new data load
     } catch (e) {
       console.error("Error loading history:", e);
     } finally {
@@ -63,6 +67,14 @@ const History: React.FC<HistoryProps> = ({ onNavigate }) => {
     });
   }, [history, searchTerm, filterDate, selectedAnimalId]);
 
+  const displayedHistory = useMemo(() => {
+    return filteredHistory.slice(0, visibleCount);
+  }, [filteredHistory, visibleCount]);
+
+  const loadMore = () => {
+    setVisibleCount(prev => prev + PAGE_SIZE);
+  };
+
   const exportAsJSON = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(history, null, 2));
     const downloadAnchorNode = document.createElement('a');
@@ -77,10 +89,12 @@ const History: React.FC<HistoryProps> = ({ onNavigate }) => {
     setSearchTerm('');
     setFilterDate('');
     setSelectedAnimalId(null);
+    setVisibleCount(PAGE_SIZE);
   };
 
   const toggleAnimalFilter = (id: string) => {
     setSelectedAnimalId(selectedAnimalId === id ? null : id);
+    setVisibleCount(PAGE_SIZE);
   };
 
   return (
@@ -198,26 +212,37 @@ const History: React.FC<HistoryProps> = ({ onNavigate }) => {
             </div>
           ) : activeTab === 'list' ? (
             <div className="space-y-3">
-              {filteredHistory.length > 0 ? (
-                filteredHistory.map((item, idx) => (
-                  <div key={idx} className="bg-white dark:bg-surface-dark border border-black/5 rounded-2xl p-4 flex items-center gap-4 shadow-sm group hover:border-primary/30 transition-all animate-in fade-in duration-300">
-                    <div className="size-12 rounded-xl bg-background-light dark:bg-background-dark flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
-                      {item.animalData?.emoji || '💠'}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <h4 className="font-black text-sm uppercase tracking-tight">{item.animalData?.name || item.animal}</h4>
-                        <span className="text-[9px] font-black text-white bg-black/80 dark:bg-white/20 px-1.5 py-0.5 rounded">{item.hour}</span>
+              {displayedHistory.length > 0 ? (
+                <>
+                  {displayedHistory.map((item, idx) => (
+                    <div key={idx} className="bg-white dark:bg-surface-dark border border-black/5 rounded-2xl p-4 flex items-center gap-4 shadow-sm group hover:border-primary/30 transition-all animate-in fade-in duration-300">
+                      <div className="size-12 rounded-xl bg-background-light dark:bg-background-dark flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                        {item.animalData?.emoji || '💠'}
                       </div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-bold text-primary-dark dark:text-primary"># {item.animalData?.number || item.number}</p>
-                        <p className="text-[9px] font-black opacity-30 tracking-tight">
-                          {new Date(item.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </p>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <h4 className="font-black text-sm uppercase tracking-tight">{item.animalData?.name || item.animal}</h4>
+                          <span className="text-[9px] font-black text-white bg-black/80 dark:bg-white/20 px-1.5 py-0.5 rounded">{item.hour}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-primary-dark dark:text-primary"># {item.animalData?.number || item.number}</p>
+                          <p className="text-[9px] font-black opacity-30 tracking-tight">
+                            {new Date(item.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                  
+                  {visibleCount < filteredHistory.length && (
+                    <button 
+                      onClick={loadMore}
+                      className="w-full py-4 mt-4 border-2 border-dashed border-black/10 dark:border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 hover:border-primary/50 transition-all active:scale-[0.98]"
+                    >
+                      Cargar más resultados ({filteredHistory.length - visibleCount} restantes)
+                    </button>
+                  )}
+                </>
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-center px-10">
                   <span className="material-symbols-outlined text-5xl opacity-20 mb-4">search_off</span>

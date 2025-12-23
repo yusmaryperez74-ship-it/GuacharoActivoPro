@@ -22,29 +22,35 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
   const [lastUpdate, setLastUpdate] = useState<string>("");
 
   const hydrate = useCallback(async () => {
-    const cachedHistory = localStorage.getItem('guacharo_history_v4');
-    if (cachedHistory) {
-      try {
-        const parsed = JSON.parse(cachedHistory);
-        setHistory(parsed);
-        setDraws(getDrawSchedule());
-      } catch (e) {
-        console.error("Cache parsing error", e);
-      }
-    }
-
     setFetchingReal(true);
     try {
       const [realData, historyData] = await Promise.all([
         fetchRealResults(),
         fetchExtendedHistory()
       ]);
-      setDraws(getDrawSchedule(realData.draws as any));
-      setHistory(historyData.history);
-      const nowLabel = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setLastUpdate(nowLabel);
+
+      // Mezclamos resultados reales de hoy en el historial si no están presentes
+      const today = new Date().toISOString().split('T')[0];
+      const mergedHistory = [...historyData.history];
       
-      // Trigger visual feedback
+      realData.draws.forEach(rd => {
+        const exists = mergedHistory.find(h => h.date === today && h.hour === rd.hour);
+        if (!exists && rd.animal) {
+          mergedHistory.unshift({
+            date: today,
+            hour: rd.hour,
+            animal: rd.animal.name,
+            number: rd.animal.number,
+            animalData: rd.animal
+          });
+        }
+      });
+
+      setDraws(getDrawSchedule(realData.draws as any));
+      setHistory(mergedHistory);
+      
+      const nowLabel = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      setLastUpdate(nowLabel);
       setShowUpdateToast(true);
       setTimeout(() => setShowUpdateToast(false), 3000);
     } catch (e) {
@@ -57,8 +63,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
   useEffect(() => {
     hydrate();
     const timer = setInterval(() => setCountdown(getNextDrawCountdown()), 1000);
-    // Auto-refresh every 5 minutes to keep results fresh
-    const refreshTimer = setInterval(() => hydrate(), 300000);
+    const refreshTimer = setInterval(() => hydrate(), 120000); // Frecuencia aumentada a 2 min
     return () => {
       clearInterval(timer);
       clearInterval(refreshTimer);
@@ -81,29 +86,29 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
   const getReasoningTags = (reasoning: string) => {
     const tags = [];
     const r = (reasoning || "").toLowerCase();
-    if (r.includes("tendencia") || r.includes("momentum")) {
-      tags.push({ label: 'MOMENTUM', icon: 'trending_up', color: 'text-blue-500 bg-blue-500/10 border-blue-500/20' });
+    if (r.includes("tendencia") || r.includes("alcista")) {
+      tags.push({ label: 'TENDENCIA 200', icon: 'trending_up', color: 'text-blue-500 bg-blue-500/10 border-blue-500/20' });
     }
-    if (r.includes("transición") || r.includes("markov")) {
-      tags.push({ label: 'MARKOV', icon: 'hub', color: 'text-purple-500 bg-purple-500/10 border-purple-500/20' });
+    if (r.includes("transición") || r.includes("correlación")) {
+      tags.push({ label: 'MARKOV-CORE', icon: 'hub', color: 'text-purple-500 bg-purple-500/10 border-purple-500/20' });
     }
-    if (r.includes("recurrencia") || r.includes("historial")) {
-      tags.push({ label: 'RECURRENCIA', icon: 'rebase_edit', color: 'text-orange-500 bg-orange-500/10 border-orange-500/20' });
+    if (r.includes("frecuencia") || r.includes("histórica")) {
+      tags.push({ label: 'HISTORIAL MAX', icon: 'rebase_edit', color: 'text-orange-500 bg-orange-500/10 border-orange-500/20' });
     }
     return tags;
   };
 
+  // Lógica mejorada para encontrar el último sorteo real completado
   const lastCompletedDraw = [...draws].reverse().find(d => d.isCompleted && d.animal);
 
   return (
     <div className="flex h-full flex-col bg-background-light dark:bg-background-dark overflow-hidden text-text-main-light dark:text-text-main-dark">
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32 relative">
         
-        {/* Update Notification Overlay */}
         <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-[60] transition-all duration-500 pointer-events-none ${showUpdateToast ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
           <div className="bg-black/80 dark:bg-white/90 backdrop-blur-md text-white dark:text-black px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 border border-white/10">
             <span className="material-symbols-outlined text-sm animate-bounce text-primary">cloud_done</span>
-            <span className="text-[10px] font-black uppercase tracking-widest">Datos Sincronizados</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Oráculo Sincronizado</span>
           </div>
         </div>
 
@@ -128,47 +133,42 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
           </div>
 
           <div className="flex flex-col gap-1">
-            <p className="text-[10px] font-black opacity-50 uppercase tracking-[0.2em]">Siguiente Sorteo</p>
+            <p className="text-[10px] font-black opacity-50 uppercase tracking-[0.2em]">Próximo Sorteo</p>
             <div className="flex items-end gap-3">
               <h2 className="text-5xl font-black tracking-tighter text-yellow-700 dark:text-primary">{countdown}</h2>
-              <span className="text-xs font-black mb-2 opacity-30">EN CURSO</span>
+              <span className="text-xs font-black mb-2 opacity-30">CONTEO</span>
             </div>
           </div>
 
-          <div className={`mt-8 transition-all duration-700 ${showUpdateToast ? 'ring-2 ring-primary ring-offset-4 ring-offset-background-light dark:ring-offset-background-dark scale-[1.02]' : ''} bg-white/50 dark:bg-white/5 backdrop-blur-xl rounded-3xl p-4 border border-white/20 shadow-lg relative overflow-hidden group`}>
-             {/* Subtle scanline animation when fetching */}
-             {fetchingReal && (
-               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent -translate-x-full animate-[shimmer_2s_infinite] pointer-events-none"></div>
-             )}
-             
+          <div className={`mt-8 transition-all duration-700 bg-white/50 dark:bg-white/5 backdrop-blur-xl rounded-3xl p-4 border border-white/20 shadow-lg relative overflow-hidden group ${fetchingReal ? 'ring-2 ring-primary/30' : ''}`}>
              <div className="flex items-center justify-between mb-4">
                <div className="flex items-center gap-2">
                 <h3 className="text-[10px] font-black uppercase tracking-widest opacity-60">Último Resultado Real</h3>
-                {showUpdateToast && <span className="text-[8px] font-black text-primary bg-black px-1 rounded animate-pulse">NUEVO</span>}
                </div>
-               <div className="flex items-center gap-1.5">
-                  <span className="text-[8px] font-bold opacity-40">{lastUpdate && `ACT: ${lastUpdate}`}</span>
-                  <div className={`size-2 rounded-full ${fetchingReal ? 'bg-primary animate-pulse' : 'bg-green-500'} shadow-[0_0_8px_rgba(34,197,94,0.4)]`}></div>
-               </div>
+               <div className={`size-2 rounded-full ${fetchingReal ? 'bg-primary animate-pulse' : 'bg-green-500'} shadow-[0_0_8px_rgba(34,197,94,0.4)]`}></div>
              </div>
              
              {lastCompletedDraw ? (
-               <div className="flex items-center gap-4 relative">
-                 <div className="size-14 rounded-2xl bg-white dark:bg-surface-dark flex items-center justify-center text-3xl shadow-sm border border-black/5 group-hover:rotate-6 transition-transform">
+               <div className="flex items-center gap-4 relative animate-in fade-in zoom-in duration-500">
+                 <div className="size-14 rounded-2xl bg-white dark:bg-surface-dark flex items-center justify-center text-3xl shadow-sm border border-black/5">
                    {lastCompletedDraw.animal?.emoji}
                  </div>
                  <div>
                    <h4 className="font-black text-lg uppercase tracking-tight">{lastCompletedDraw.animal?.name}</h4>
-                   <p className="text-xs font-bold text-primary-dark dark:text-primary"># {lastCompletedDraw.animal?.number} • {lastCompletedDraw.label}</p>
+                   <p className="text-xs font-bold text-primary-dark dark:text-primary"># {lastCompletedDraw.animal?.number} • Sorteo {lastCompletedDraw.label}</p>
                  </div>
-                 {showUpdateToast && (
-                   <div className="absolute -right-2 top-0">
-                      <span className="material-symbols-outlined text-primary text-xl icon-filled animate-ping">verified</span>
-                   </div>
-                 )}
+                 <div className="absolute right-0 bottom-0 opacity-10">
+                    <span className="material-symbols-outlined text-4xl">verified</span>
+                 </div>
                </div>
              ) : (
-               <div className="h-14 flex items-center opacity-30 italic text-sm font-medium">Sincronizando oráculo...</div>
+               <div className="h-14 flex items-center gap-3">
+                 <div className="size-14 rounded-2xl bg-black/5 animate-pulse"></div>
+                 <div className="flex-1 space-y-2">
+                   <div className="h-4 bg-black/5 animate-pulse w-2/3"></div>
+                   <div className="h-3 bg-black/5 animate-pulse w-1/3"></div>
+                 </div>
+               </div>
              )}
           </div>
         </div>
@@ -177,7 +177,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
           <div className="flex items-center justify-between mb-6">
             <div className="flex flex-col">
               <h3 className="text-xl font-black">Top 5 Probabilidades</h3>
-              <p className="text-[9px] font-black opacity-40 uppercase tracking-widest">Análisis Multidimensional</p>
+              <p className="text-[9px] font-black opacity-40 uppercase tracking-widest">Basado en Historial de 200 Sorteos</p>
             </div>
             <button 
               onClick={handleGenerate}
@@ -185,7 +185,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
               className={`flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary text-black font-black text-xs shadow-md transition-all active:scale-95 ${loading ? 'opacity-50 animate-pulse cursor-not-allowed' : ''}`}
             >
               <span className="material-symbols-outlined text-sm">{loading ? 'sync' : 'psychology'}</span>
-              {loading ? 'PROCESANDO...' : 'RECALCULAR'}
+              {loading ? 'ANALIZANDO...' : 'RECALCULAR'}
             </button>
           </div>
 
@@ -196,7 +196,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-4">
                       <div className="relative">
-                        <div className="size-16 rounded-2xl bg-background-light dark:bg-background-dark flex items-center justify-center text-4xl group-hover:bg-primary/10 transition-colors">
+                        <div className="size-16 rounded-2xl bg-background-light dark:bg-background-dark flex items-center justify-center text-4xl">
                           {p.animal.emoji}
                         </div>
                         <div className="absolute -top-2 -left-2 size-6 rounded-full bg-black text-white text-[10px] font-black flex items-center justify-center border-2 border-white dark:border-surface-dark">
@@ -239,38 +239,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, toggleDarkMode, isDar
                   <span className="material-symbols-outlined text-4xl">analytics</span>
                 </div>
                 <div>
-                  <p className="text-sm font-black uppercase tracking-widest opacity-40">Motor de Inferencias Listo</p>
-                  <p className="text-xs font-medium opacity-30 mt-1 max-w-[220px] mx-auto">Toca "RECALCULAR" para procesar el historial y obtener el Top 5 de hoy.</p>
+                  <p className="text-sm font-black uppercase tracking-widest opacity-40">Motor Estadístico Listo</p>
+                  <p className="text-xs font-medium opacity-30 mt-1 max-w-[220px] mx-auto">Sincronizado con los últimos 200 sorteos. Pulsa recalcular para ver tendencias.</p>
                 </div>
               </div>
             )}
           </div>
-
-          <div className="mt-12 bg-black/5 dark:bg-white/5 rounded-[2.5rem] p-6 border border-black/5">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-lg font-black tracking-tight">Sorteos Pendientes</h3>
-              <p className="text-[9px] font-bold opacity-40 uppercase tracking-widest">{lastUpdate && `Actualizado: ${lastUpdate}`}</p>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {draws.filter(d => !d.isCompleted).slice(0, 6).map((d, i) => (
-                <div key={i} className={`p-4 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all ${d.isNext ? 'bg-primary/20 border-primary shadow-sm scale-[1.05] z-10' : 'bg-white dark:bg-surface-dark border-black/5 opacity-60'}`}>
-                  <p className={`text-[10px] font-black uppercase ${d.isNext ? 'text-black' : 'opacity-50'}`}>{d.label}</p>
-                  <span className={`material-symbols-outlined ${d.isNext ? 'text-yellow-700 animate-pulse' : 'opacity-30'} text-xl`}>pending_actions</span>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
       <Navbar activeView={View.DASHBOARD} onNavigate={onNavigate} />
-      
-      <style>{`
-        @keyframes shimmer {
-          100% {
-            transform: translateX(100%);
-          }
-        }
-      `}</style>
     </div>
   );
 };
