@@ -12,24 +12,26 @@ const CACHE_KEYS = {
   PREDICTIONS: 'guacharo_predictions_v4'
 };
 
+// Exporting TARGET_URL to fix reference errors in components/History.tsx
+export const TARGET_URL = "https://www.loteriadehoy.com/animalito/guacharoactivo/resultados/";
+
 /**
  * Normaliza nombres de animales para un mapeo robusto.
- * Maneja casos como "36-Culebra", "Culebra (36)", "05", "Leon", etc.
  */
 const findAnimalByFlexibleInput = (input: string): Animal | null => {
   if (!input) return null;
   const str = input.toString().trim();
   
-  // Extraer solo números si existen (ej: "36-Culebra" -> "36")
+  // Extraer solo números (ej: "36-Culebra" -> "36")
   const numMatch = str.match(/\d+/);
   const extractedNum = numMatch ? numMatch[0].padStart(2, '0') : null;
   
   if (extractedNum) {
-    const byNum = ANIMALS.find(a => a.number === extractedNum || a.id === extractedNum);
+    const byNum = ANIMALS.find(a => a.number === extractedNum);
     if (byNum) return byNum;
   }
 
-  // Búsqueda por nombre (fuzzy)
+  // Búsqueda por nombre
   const cleanInput = str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, '');
   const byName = ANIMALS.find(a => {
     const cleanName = a.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, '');
@@ -60,10 +62,9 @@ export const generatePrediction = async (history: any[] = []): Promise<Predictio
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `SISTEMA ANALÍTICO GUÁCHARO AI. 
-                DATOS ESTADÍSTICOS: ${statsPredictions.map(p => `${p.animal.name} (${p.probability}%)`).join(', ')}.
-                HISTORIAL RECIENTE: ${history.slice(0, 10).map(h => h.animalData?.name || h.animal).join(' -> ')}.
-                TAREA: Valida las probabilidades considerando el historial de 200 sorteos y las rachas actuales.`,
+      contents: `Analiza los últimos 200 sorteos de Guácharo Activo: ${history.slice(0, 10).map(h => h.animalData?.name || h.animal).join(' -> ')}.
+      Usa el motor estadístico sugerido: ${statsPredictions.map(p => `${p.animal.name} (${p.probability}%)`).join(', ')}.
+      Genera predicciones con lógica de racha y retraso.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -107,18 +108,15 @@ export const fetchRealResults = async (): Promise<{ draws: Partial<DrawResult>[]
     const today = new Date().toLocaleDateString('es-ES');
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `IMPORTANTE: Necesito los resultados de la lotería "Guácharo Activo" para el día de HOY ${today}.
-      Busca en páginas de resultados y redes sociales.
-      FORMATO JSON ESTRICTO: { "draws": [{ "hour": "HH:mm", "animal": "Nombre del animal o número" }] }
-      Horarios válidos: 09:00, 10:00, 11:00, 12:00, 13:00, 16:00, 17:00, 18:00, 19:00.`,
+      contents: `URGENTE: Consulta ${TARGET_URL} y obtén los resultados de la lotería "Guácharo Activo" para hoy ${today}.
+      Extrae la hora y el animal ganador (Nombre o número).
+      FORMATO JSON: { "draws": [{ "hour": "HH:mm", "animal": "Nombre/Número" }] }`,
       config: { tools: [{ googleSearch: {} }] },
     });
 
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => ({
-      uri: c.web?.uri, title: c.web?.title
-    })).filter((s: any) => s && s.uri).slice(0, 3) || [];
-
+    const sources = [{ uri: TARGET_URL, title: "Lotería de Hoy - Guácharo Activo" }];
     const data = safeParseJSON(response.text || "", { draws: [] });
+    
     const formattedDraws = (data.draws || []).map((d: any) => ({
       hour: d.hour,
       animal: findAnimalByFlexibleInput(d.animal),
@@ -135,16 +133,15 @@ export const fetchExtendedHistory = async (): Promise<{ history: any[], sources:
   const cachedHistory = localStorage.getItem(CACHE_KEYS.HISTORY);
   const lastFetch = localStorage.getItem(CACHE_KEYS.LAST_FETCH);
   
-  // Cache de 5 minutos para asegurar que los resultados nuevos aparezcan rápido
-  if (cachedHistory && lastFetch && (Date.now() - parseInt(lastFetch)) < 300000) {
+  if (cachedHistory && lastFetch && (Date.now() - parseInt(lastFetch)) < 600000) {
     return { history: JSON.parse(cachedHistory), sources: [] };
   }
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Extrae de forma exhaustiva los últimos 200 resultados de la lotería "Guácharo Activo".
-      Asegúrate de incluir los resultados más recientes de hoy y los días anteriores.
+      contents: `Accede a ${TARGET_URL} y extrae los últimos 200 resultados de Guácharo Activo.
+      Incluye la fecha, la hora y el animal/número.
       FORMATO JSON: { "history": [{ "date": "YYYY-MM-DD", "hour": "HH:mm", "animal": "Nombre", "number": "00" }] }`,
       config: { tools: [{ googleSearch: {} }] },
     });
