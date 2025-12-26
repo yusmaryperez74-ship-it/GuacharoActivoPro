@@ -7,6 +7,7 @@ import { ValidationService, AccuracyMetrics } from '../services/validationServic
 import { NotificationService } from '../services/notificationService';
 import Navbar from './Navbar';
 import SmartAlerts from './SmartAlerts';
+import ManualResultEntry from './ManualResultEntry';
 
 interface DashboardProps {
   lotteryId: LotteryId;
@@ -28,6 +29,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
   const [showAccuracy, setShowAccuracy] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [unreadAlerts, setUnreadAlerts] = useState(0);
+  const [showManualEntry, setShowManualEntry] = useState(false);
 
   const isLottoActivo = lotteryId === 'LOTTO_ACTIVO';
   const themeColor = isLottoActivo ? 'text-blue-500' : 'text-primary';
@@ -183,6 +185,13 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
                   </div>
                 )}
               </button>
+              <button 
+                onClick={() => setShowManualEntry(true)}
+                className="size-10 rounded-full bg-white/20 dark:bg-black/20 flex items-center justify-center"
+                title="Reportar resultado manualmente"
+              >
+                <span className="material-symbols-outlined text-xl">edit</span>
+              </button>
               <button onClick={() => hydrate()} className={`size-10 rounded-full bg-white/20 dark:bg-black/20 flex items-center justify-center ${fetchingReal ? 'animate-spin' : ''}`}>
                 <span className="material-symbols-outlined text-xl">refresh</span>
               </button>
@@ -199,8 +208,13 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
 
           <div className="mt-8 bg-white/50 dark:bg-white/5 backdrop-blur-xl rounded-3xl p-4 border border-white/20 shadow-lg">
              <div className="flex items-center justify-between mb-4">
-               <h3 className="text-[10px] font-black uppercase tracking-widest opacity-60">Ganador de hoy</h3>
-               <div className={`size-2 rounded-full ${fetchingReal ? 'bg-primary animate-pulse' : 'bg-green-500'}`}></div>
+               <h3 className="text-[10px] font-black uppercase tracking-widest opacity-60">Último Resultado</h3>
+               <div className="flex items-center gap-2">
+                 <div className={`size-2 rounded-full ${fetchingReal ? 'bg-primary animate-pulse' : 'bg-green-500'}`}></div>
+                 <span className="text-[8px] opacity-40">
+                   {fetchingReal ? 'Actualizando...' : 'Datos reales'}
+                 </span>
+               </div>
              </div>
              {lastCompletedDraw ? (
                <div className="flex items-center gap-4 animate-in fade-in zoom-in duration-500">
@@ -361,6 +375,17 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
         onClose={() => {
           setShowAlerts(false);
           setUnreadAlerts(NotificationService.getUnreadCount(lotteryId));
+        }}
+      />
+      
+      <ManualResultEntry
+        lotteryId={lotteryId}
+        isVisible={showManualEntry}
+        onClose={() => setShowManualEntry(false)}
+        onResultAdded={(hour, animal) => {
+          // Actualizar los datos cuando se reporte un resultado
+          hydrate();
+          console.log(`✅ Result reported: ${animal.name} at ${hour}`);
         }}
       />
     </div>

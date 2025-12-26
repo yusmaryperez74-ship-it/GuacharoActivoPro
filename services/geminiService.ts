@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { ANIMALS } from '../constants';
 import { Prediction, DrawResult, Animal, LotteryId } from '../types';
 import { PredictionEngine } from './lotteryService';
+import { RealDataService } from './realDataService';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -163,6 +164,30 @@ function getTimeContext(hour: number): string {
 
 export const fetchRealResults = async (lotteryId: LotteryId): Promise<{ draws: Partial<DrawResult>[], sources: any[] }> => {
   try {
+    console.log(`🔍 Fetching real results for ${lotteryId}...`);
+    
+    // Usar el nuevo servicio de datos reales
+    const result = await RealDataService.getRealResults(lotteryId);
+    
+    console.log(`✅ Found ${result.draws.length} real results from sources: ${result.sources.join(', ')}`);
+    
+    return {
+      draws: result.draws,
+      sources: result.sources.map(source => ({ uri: source, title: `${lotteryId} - ${source}` }))
+    };
+  } catch (error) {
+    console.error("❌ All real data methods failed, falling back to AI method:", error);
+    
+    // Fallback: usar método de IA como último recurso
+    return await fetchRealResultsWithAI(lotteryId);
+  }
+};
+
+/**
+ * Método de fallback usando IA (solo cuando fallan todos los métodos reales)
+ */
+async function fetchRealResultsWithAI(lotteryId: LotteryId): Promise<{ draws: Partial<DrawResult>[], sources: any[] }> {
+  try {
     const url = LOTTERY_URLS[lotteryId];
     
     // Usar hora de Venezuela para la fecha
@@ -174,25 +199,28 @@ export const fetchRealResults = async (lotteryId: LotteryId): Promise<{ draws: P
       year: 'numeric'
     });
     
+    console.log(`⚠️ Using AI fallback for ${lotteryId} - ${today}`);
+    
     // Prompt más específico y rápido
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `TAREA URGENTE: Extrae SOLO los resultados de ${lotteryId} para HOY ${today} desde ${url}.
+      contents: `ADVERTENCIA: Solo usar si no hay otra opción. Extrae ÚNICAMENTE resultados REALES y VERIFICADOS de ${lotteryId} para HOY ${today} desde ${url}.
 
-FORMATO REQUERIDO - JSON exacto:
-{ "draws": [{ "hour": "09:00", "animal": "León" }, { "hour": "10:00", "animal": "Tigre" }] }
+CRÍTICO: NO INVENTES DATOS. Si no encuentras resultados reales, retorna array vacío.
 
-INSTRUCCIONES:
-- Solo resultados de HOY ${today}
-- Solo sorteos YA REALIZADOS (no futuros)
-- Formato hora: "HH:mm" (ej: "09:00", "14:00")
-- Animal: nombre exacto o número
-- Máximo 11 sorteos por día
-- Si no hay resultados, retorna: { "draws": [] }`,
+FORMATO REQUERIDO:
+{ "draws": [{ "hour": "09:00", "animal": "León" }] }
+
+REGLAS ESTRICTAS:
+- Solo resultados CONFIRMADOS de hoy ${today}
+- Solo sorteos YA REALIZADOS
+- NO simular ni inventar datos
+- Si no hay resultados: { "draws": [] }
+- Máximo 11 sorteos por día`,
       config: { 
         tools: [{ googleSearch: {} }],
-        temperature: 0.1, // Más determinístico
-        topP: 0.8
+        temperature: 0.0, // Máxima determinismo
+        topP: 0.1
       },
     });
 
@@ -204,22 +232,22 @@ INSTRUCCIONES:
         isCompleted: true
       }))
       .filter((d: any) => {
-        // Validar que la hora sea válida y el animal exista
         return d.animal !== null && 
                d.hour && 
-               /^\d{2}:\d{2}$/.test(d.hour) &&
-               DRAW_HOURS.includes(d.hour);
+               /^\d{2}:\d{2}$/.test(d.hour);
       });
+
+    console.log(`🤖 AI fallback found ${validDraws.length} results`);
 
     return {
       draws: validDraws,
-      sources: [{ uri: url, title: `Resultados ${lotteryId} - ${today}` }]
+      sources: [{ uri: url, title: `${lotteryId} - AI Fallback (⚠️ Verify manually)` }]
     };
   } catch (error) { 
-    console.error("Error fetching real results:", error);
+    console.error("❌ AI fallback also failed:", error);
     return { draws: [], sources: [] }; 
   }
-};
+}
 
 export const fetchExtendedHistory = async (lotteryId: LotteryId): Promise<{ history: any[], sources: any[] }> => {
   const cacheKey = CACHE_KEYS.HISTORY(lotteryId);
