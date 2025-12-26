@@ -1,6 +1,7 @@
 import { LotteryId, DrawResult, Animal } from '../types';
 import { ANIMALS } from '../constants';
 import { DATA_SOURCES, CORS_PROXIES, HTML_PATTERNS, RATE_LIMITS, CACHE_CONFIG } from '../config/dataSourcesConfig';
+import { LotoVenService } from './lotovenService';
 
 // URLs oficiales de las loterías
 const OFFICIAL_URLS = {
@@ -34,6 +35,7 @@ export class RealDataService {
 
   /**
    * Obtiene los resultados reales usando múltiples métodos configurables
+   * Prioridad: LotoVen -> Otras fuentes -> Fallbacks
    */
   static async getRealResults(lotteryId: LotteryId): Promise<{ draws: Partial<DrawResult>[], sources: string[] }> {
     // Rate limiting
@@ -44,13 +46,32 @@ export class RealDataService {
     }
     this.lastRequestTime = Date.now();
 
+    console.log(`🚀 Starting data fetch for ${lotteryId}...`);
+
+    // 1. PRIORIDAD MÁXIMA: Intentar LotoVen primero
+    try {
+      console.log(`🎯 Trying LotoVen for ${lotteryId}...`);
+      const lotovenResult = await LotoVenService.getResults(lotteryId);
+      
+      if (lotovenResult.draws.length > 0) {
+        console.log(`✅ LotoVen SUCCESS: ${lotovenResult.draws.length} results`);
+        return lotovenResult;
+      } else {
+        console.log(`⚠️ LotoVen returned no results`);
+      }
+    } catch (error) {
+      console.warn(`❌ LotoVen failed:`, error);
+    }
+
+    // 2. FALLBACK: Usar otras fuentes configuradas
     const cached = this.getCachedResults(lotteryId);
     if (cached) {
+      console.log(`📦 Using cached results as fallback`);
       return cached;
     }
 
     const sources = DATA_SOURCES[lotteryId]
-      .filter(source => source.isActive)
+      .filter(source => source.isActive && source.name !== 'LotoVen - Guácharo Activo' && source.name !== 'LotoVen - Lotto Activo')
       .sort((a, b) => a.priority - b.priority);
 
     for (const source of sources) {
@@ -60,13 +81,13 @@ export class RealDataService {
         let result;
         switch (source.type) {
           case 'api':
-            result = await this.fetchFromAPI(source);
+            result = await this.fetchFromOfficialAPI(source.url);
             break;
           case 'scraping':
-            result = await this.fetchFromScraping(source, lotteryId);
+            result = await this.fetchFromWebScraping(source.url);
             break;
           case 'community':
-            result = await this.fetchFromCommunity(source, lotteryId);
+            result = await this.fetchFromCommunityAPI(source.url);
             break;
           default:
             continue;
@@ -83,23 +104,23 @@ export class RealDataService {
       }
     }
 
-    // Si todo falla, retornar cache expirado si existe
+    // 3. ÚLTIMO RECURSO: Cache expirado
     const expiredCache = this.getCachedResults(lotteryId, true);
-    return expiredCache || { draws: [], sources: ['No sources available'] };
+    if (expiredCache) {
+      console.log(`🕰️ Using expired cache as last resort`);
+      return expiredCache;
+    }
+
+    console.log(`❌ All sources failed for ${lotteryId}`);
+    return { draws: [], sources: ['All sources failed'] };
   }
 
   /**
    * Método 1: API oficial (si existe)
    */
-  private static async fetchFromOfficialAPI(lotteryId: LotteryId): Promise<{ draws: Partial<DrawResult>[], sources: string[] }> {
-    // Nota: Estas APIs son hipotéticas, necesitarían ser reales
-    const apiUrls = {
-      GUACHARO: 'https://api.loteriadehoy.com/v1/guacharo/today',
-      LOTTO_ACTIVO: 'https://api.loteriadehoy.com/v1/lotto-activo/today'
-    };
-
+  private static async fetchFromOfficialAPI(url: string): Promise<{ draws: Partial<DrawResult>[], sources: string[] }> {
     try {
-      const response = await fetch(apiUrls[lotteryId], {
+      const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
           'User-Agent': 'GuacharoAI/2.0'
@@ -109,73 +130,25 @@ export class RealDataService {
       if (!response.ok) throw new Error(`API responded with ${response.status}`);
 
       const data = await response.json();
-      return this.parseOfficialAPIResponse(data, lotteryId);
+      return this.parseOfficialAPIResponse(data);
     } catch (error) {
       throw new Error(`Official API failed: ${error}`);
     }
   }
 
   /**
-   * Método 2: Fuentes de respaldo
+   * Método 2: Web scraping directo
    */
-  private static async fetchFromBackupSources(lotteryId: LotteryId): Promise<{ draws: Partial<DrawResult>[], sources: string[] }> {
-    const urls = BACKUP_URLS[lotteryId];
-    
-    for (const url of urls) {
-      try {
-        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-        const data = await response.json();
-        
-        if (data.contents) {
-          const results = this.parseHTMLResults(data.contents, lotteryId);
-          if (results.draws.length > 0) {
-            return { ...results, sources: [url] };
-          }
-        }
-      } catch (error) {
-        console.warn(`Backup source ${url} failed:`, error);
-        continue;
-      }
-    }
-
-    throw new Error('All backup sources failed');
-  }
-
-  /**
-   * Método 3: API comunitaria (datos crowdsourced)
-   */
-  private static async fetchFromCommunityAPI(lotteryId: LotteryId): Promise<{ draws: Partial<DrawResult>[], sources: string[] }> {
-    // Esta sería una API comunitaria donde usuarios reportan resultados
-    const communityAPI = 'https://api.animalitos-community.com/v1/results';
-    
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const response = await fetch(`${communityAPI}?lottery=${lotteryId}&date=${today}`);
-      
-      if (!response.ok) throw new Error(`Community API failed: ${response.status}`);
-      
-      const data = await response.json();
-      return this.parseCommunityAPIResponse(data, lotteryId);
-    } catch (error) {
-      throw new Error(`Community API failed: ${error}`);
-    }
-  }
-
-  /**
-   * Método 4: Web scraping directo (sin IA)
-   */
-  private static async fetchFromWebScraping(lotteryId: LotteryId): Promise<{ draws: Partial<DrawResult>[], sources: string[] }> {
-    const url = OFFICIAL_URLS[lotteryId];
-    
+  private static async fetchFromWebScraping(url: string): Promise<{ draws: Partial<DrawResult>[], sources: string[] }> {
     try {
       // Usar un proxy CORS para obtener el HTML
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+      const proxyUrl = `${CORS_PROXIES[0]}${encodeURIComponent(url)}`;
       const response = await fetch(proxyUrl);
       const data = await response.json();
       
       if (!data.contents) throw new Error('No content received');
       
-      const results = this.parseHTMLResults(data.contents, lotteryId);
+      const results = this.parseHTMLResults(data.contents);
       return { ...results, sources: [url] };
     } catch (error) {
       throw new Error(`Web scraping failed: ${error}`);
@@ -183,9 +156,26 @@ export class RealDataService {
   }
 
   /**
+   * Método 3: API comunitaria
+   */
+  private static async fetchFromCommunityAPI(url: string): Promise<{ draws: Partial<DrawResult>[], sources: string[] }> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await fetch(`${url}?date=${today}`);
+      
+      if (!response.ok) throw new Error(`Community API failed: ${response.status}`);
+      
+      const data = await response.json();
+      return this.parseCommunityAPIResponse(data);
+    } catch (error) {
+      throw new Error(`Community API failed: ${error}`);
+    }
+  }
+
+  /**
    * Parser para respuesta de API oficial
    */
-  private static parseOfficialAPIResponse(data: any, lotteryId: LotteryId): { draws: Partial<DrawResult>[], sources: string[] } {
+  private static parseOfficialAPIResponse(data: any): { draws: Partial<DrawResult>[], sources: string[] } {
     const draws: Partial<DrawResult>[] = [];
     
     if (data.results && Array.isArray(data.results)) {
@@ -207,7 +197,7 @@ export class RealDataService {
   /**
    * Parser para API comunitaria
    */
-  private static parseCommunityAPIResponse(data: any, lotteryId: LotteryId): { draws: Partial<DrawResult>[], sources: string[] } {
+  private static parseCommunityAPIResponse(data: any): { draws: Partial<DrawResult>[], sources: string[] } {
     const draws: Partial<DrawResult>[] = [];
     
     if (data.draws && Array.isArray(data.draws)) {
@@ -231,25 +221,18 @@ export class RealDataService {
   /**
    * Parser para HTML scraping
    */
-  private static parseHTMLResults(html: string, lotteryId: LotteryId): { draws: Partial<DrawResult>[], sources: string[] } {
+  private static parseHTMLResults(html: string): { draws: Partial<DrawResult>[], sources: string[] } {
     const draws: Partial<DrawResult>[] = [];
     
     try {
-      // Patrones comunes para extraer resultados de HTML
-      const patterns = [
-        // Patrón 1: <td>09:00</td><td>León</td> o <td>09:00</td><td>05</td>
-        /<td[^>]*>(\d{2}:\d{2})<\/td>\s*<td[^>]*>([^<]+)<\/td>/gi,
-        // Patrón 2: <div class="hour">09:00</div><div class="animal">León</div>
-        /<div[^>]*class="[^"]*hour[^"]*"[^>]*>(\d{2}:\d{2})<\/div>\s*<div[^>]*class="[^"]*animal[^"]*"[^>]*>([^<]+)<\/div>/gi,
-        // Patrón 3: JSON embebido
-        /resultados["\s]*:\s*\[([^\]]+)\]/gi
-      ];
+      // Usar patrones de LotoVen principalmente
+      const patterns = HTML_PATTERNS.LOTOVEN;
 
       for (const pattern of patterns) {
         let match;
         while ((match = pattern.exec(html)) !== null) {
-          const hour = match[1];
-          const animalStr = match[2];
+          const hour = match[2];
+          const animalStr = match[3];
           
           if (hour && animalStr) {
             const animal = this.findAnimalByNumberOrName(animalStr.trim());
@@ -263,7 +246,7 @@ export class RealDataService {
           }
         }
         
-        if (draws.length > 0) break; // Si encontramos resultados, no seguir con otros patrones
+        if (draws.length > 0) break;
       }
 
       // Eliminar duplicados y ordenar por hora
@@ -321,13 +304,13 @@ export class RealDataService {
       if (!cached) return null;
 
       const data = JSON.parse(cached);
-      const isExpired = Date.now() - data.timestamp > this.CACHE_DURATION;
+      const isExpired = Date.now() - data.timestamp > CACHE_CONFIG.REAL_RESULTS_TTL;
       
       if (isExpired && !allowExpired) return null;
       
       return {
         draws: data.draws,
-        sources: data.sources.concat(isExpired ? [' (cached - expired)'] : [' (cached)'])
+        sources: data.sources.concat(isExpired ? [' (expired cache)'] : [' (cached)'])
       };
     } catch {
       return null;
@@ -342,6 +325,7 @@ export class RealDataService {
         timestamp: Date.now()
       };
       localStorage.setItem(`${this.CACHE_KEY}_${lotteryId}`, JSON.stringify(cacheData));
+      console.log(`💾 Cached ${result.draws.length} results for ${lotteryId}`);
     } catch (error) {
       console.warn('Failed to cache results:', error);
     }

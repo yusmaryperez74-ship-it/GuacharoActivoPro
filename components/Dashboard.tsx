@@ -212,7 +212,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
                <div className="flex items-center gap-2">
                  <div className={`size-2 rounded-full ${fetchingReal ? 'bg-primary animate-pulse' : 'bg-green-500'}`}></div>
                  <span className="text-[8px] opacity-40">
-                   {fetchingReal ? 'Actualizando...' : 'Datos reales'}
+                   {fetchingReal ? 'Obteniendo de LotoVen...' : 'LotoVen'}
                  </span>
                </div>
              </div>
