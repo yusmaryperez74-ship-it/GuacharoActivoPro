@@ -5,10 +5,12 @@ import { generatePrediction, fetchRealResults, fetchExtendedHistory } from '../s
 import { getDrawSchedule, getNextDrawCountdown } from '../services/lotteryService';
 import { ValidationService, AccuracyMetrics } from '../services/validationService';
 import { NotificationService } from '../services/notificationService';
+import { PredictionService } from '../services/predictionService';
 import Navbar from './Navbar';
 import SmartAlerts from './SmartAlerts';
 import ManualResultEntry from './ManualResultEntry';
 import DebugLotoVen from './DebugLotoVen';
+import StatisticalAnalysis from './StatisticalAnalysis';
 
 interface DashboardProps {
   lotteryId: LotteryId;
@@ -32,6 +34,8 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
   const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [showDebugLotoVen, setShowDebugLotoVen] = useState(false);
+  const [showStatisticalAnalysis, setShowStatisticalAnalysis] = useState(false);
+  const [statisticalPrediction, setStatisticalPrediction] = useState<any>(null);
 
   const isLottoActivo = lotteryId === 'LOTTO_ACTIVO';
   const themeColor = isLottoActivo ? 'text-blue-500' : 'text-primary';
@@ -112,17 +116,54 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
     if (loading || history.length === 0) return;
     setLoading(true);
     try {
-      const results = await generatePrediction(lotteryId, history);
-      setPredictions(results);
+      // Generar predicción estadística moderna
+      const statisticalResponse = await PredictionService.generatePrediction({ lotteryId });
       
-      // Generar alertas inteligentes
-      const alerts = NotificationService.generateSmartAlerts(results, lotteryId, history);
-      if (alerts.length > 0) {
-        NotificationService.saveAlerts(alerts);
-        setUnreadAlerts(NotificationService.getUnreadCount(lotteryId));
+      if (statisticalResponse.success && statisticalResponse.data) {
+        // Convertir predicción estadística a formato legacy para compatibilidad
+        const legacyPredictions: Prediction[] = statisticalResponse.data.top5.map(animal => ({
+          animal: animal.animal,
+          probability: Math.round(animal.score),
+          confidence: animal.confidence === 'alta' ? 'SEGURA' : 'MODERADA',
+          reasoning: animal.explanation,
+          factors: {
+            frequency: animal.frequencyTotal,
+            recentTrend: animal.frequencyRecent,
+            timePattern: animal.daysSinceLastAppearance,
+            hotCold: animal.category === 'hot' ? 'hot' : animal.category === 'cold' ? 'cold' : 'neutral'
+          }
+        }));
+        
+        setPredictions(legacyPredictions);
+        setStatisticalPrediction(statisticalResponse.data);
+        
+        // Generar alertas inteligentes basadas en análisis estadístico
+        const alerts = NotificationService.generateSmartAlerts(legacyPredictions, lotteryId, history);
+        if (alerts.length > 0) {
+          NotificationService.saveAlerts(alerts);
+          setUnreadAlerts(NotificationService.getUnreadCount(lotteryId));
+        }
+      } else {
+        // Fallback a predicción legacy si falla el análisis estadístico
+        console.warn('Statistical analysis failed, using legacy prediction');
+        const results = await generatePrediction(lotteryId, history);
+        setPredictions(results);
+        
+        const alerts = NotificationService.generateSmartAlerts(results, lotteryId, history);
+        if (alerts.length > 0) {
+          NotificationService.saveAlerts(alerts);
+          setUnreadAlerts(NotificationService.getUnreadCount(lotteryId));
+        }
       }
     } catch (e) {
       console.error("Prediction error", e);
+      // Fallback a predicción legacy en caso de error
+      try {
+        const results = await generatePrediction(lotteryId, history);
+        setPredictions(results);
+      } catch (fallbackError) {
+        console.error("Fallback prediction also failed", fallbackError);
+      }
     } finally {
       setLoading(false);
     }
@@ -186,6 +227,13 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
                     <span className="text-white text-[10px] font-bold">{unreadAlerts}</span>
                   </div>
                 )}
+              </button>
+              <button 
+                onClick={() => setShowStatisticalAnalysis(true)}
+                className="size-10 rounded-full bg-white/20 dark:bg-black/20 flex items-center justify-center"
+                title="Análisis Estadístico"
+              >
+                <span className="material-symbols-outlined text-xl">analytics</span>
               </button>
               <button 
                 onClick={() => setShowDebugLotoVen(true)}
@@ -332,16 +380,26 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
 
           <div className="flex items-center justify-between mb-6">
             <div className="flex flex-col">
-              <h3 className="text-xl font-black">Probabilidades</h3>
-              <p className="text-[9px] font-black opacity-40 uppercase tracking-widest">Basado en historial de {lotteryId}</p>
+              <h3 className="text-xl font-black">Análisis Estadístico</h3>
+              <p className="text-[9px] font-black opacity-40 uppercase tracking-widest">
+                Basado en {history.length} sorteos históricos de {lotteryId}
+              </p>
             </div>
-            <button 
-              onClick={handleGenerate} 
-              disabled={loading || history.length === 0} 
-              className={`px-6 py-3 rounded-full font-black text-xs shadow-xl transition-all active:scale-95 ${isLottoActivo ? 'bg-blue-600 text-white' : 'bg-primary text-black'} ${loading ? 'opacity-50' : ''}`}
-            >
-              {loading ? 'ANALIZANDO...' : 'RECALCULAR'}
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setShowStatisticalAnalysis(true)}
+                className={`px-3 py-2 rounded-full font-black text-xs shadow-lg transition-all active:scale-95 ${isLottoActivo ? 'bg-blue-600 text-white' : 'bg-yellow-600 text-black'}`}
+              >
+                VER ANÁLISIS
+              </button>
+              <button 
+                onClick={handleGenerate} 
+                disabled={loading || history.length === 0} 
+                className={`px-6 py-3 rounded-full font-black text-xs shadow-xl transition-all active:scale-95 ${isLottoActivo ? 'bg-blue-600 text-white' : 'bg-primary text-black'} ${loading ? 'opacity-50' : ''}`}
+              >
+                {loading ? 'ANALIZANDO...' : 'RECALCULAR'}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -366,10 +424,11 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
               </div>
             )) : (
               <div className="py-20 text-center flex flex-col items-center gap-4 opacity-20">
-                <span className={`material-symbols-outlined text-6xl ${isLottoActivo ? 'text-blue-500' : 'text-primary'}`}>psychology</span>
+                <span className={`material-symbols-outlined text-6xl ${isLottoActivo ? 'text-blue-500' : 'text-primary'}`}>analytics</span>
                 <div className="space-y-1">
-                   <p className="font-black uppercase tracking-widest text-sm">IA Preparada</p>
-                   <p className="text-[10px] font-bold">Haz clic en recalcular para analizar el historial de {isLottoActivo ? 'Lotto Activo' : 'Guácharo'}.</p>
+                   <p className="font-black uppercase tracking-widest text-sm">Análisis Estadístico Listo</p>
+                   <p className="text-[10px] font-bold">Haz clic en "RECALCULAR" para analizar {history.length} sorteos históricos de {isLottoActivo ? 'Lotto Activo' : 'Guácharo'}.</p>
+                   <p className="text-[8px] opacity-60 mt-2">Sistema basado en frecuencias, tendencias y patrones históricos</p>
                 </div>
               </div>
             )}
@@ -401,6 +460,12 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
       <DebugLotoVen
         isVisible={showDebugLotoVen}
         onClose={() => setShowDebugLotoVen(false)}
+      />
+      
+      <StatisticalAnalysis
+        lotteryId={lotteryId}
+        isVisible={showStatisticalAnalysis}
+        onClose={() => setShowStatisticalAnalysis(false)}
       />
     </div>
   );
