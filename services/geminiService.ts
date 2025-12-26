@@ -3,7 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { ANIMALS } from '../constants';
 import { Prediction, DrawResult, Animal, LotteryId } from '../types';
 import { PredictionEngine } from './lotteryService';
-import { RealDataService } from './realDataService';
+import { RealResultsService } from './realResultsService';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -167,13 +167,13 @@ export const fetchRealResults = async (lotteryId: LotteryId): Promise<{ draws: P
     console.log(`🔍 Fetching real results for ${lotteryId}...`);
     
     // Usar el nuevo servicio de datos reales
-    const result = await RealDataService.getRealResults(lotteryId);
+    const realResults = await RealResultsService.getTodayResults(lotteryId);
     
-    console.log(`✅ Found ${result.draws.length} real results from sources: ${result.sources.join(', ')}`);
+    console.log(`✅ Found ${realResults.draws.length} real results from sources: ${realResults.sources.join(', ')}`);
     
     return {
-      draws: result.draws,
-      sources: result.sources.map(source => ({ uri: source, title: `${lotteryId} - ${source}` }))
+      draws: realResults.draws,
+      sources: realResults.sources.map(source => ({ uri: source, title: `${lotteryId} - ${source}` }))
     };
   } catch (error) {
     console.error("❌ All real data methods failed, falling back to AI method:", error);

@@ -65,7 +65,8 @@ export class RealResultsService {
         label: `${draw.hour || '00:00'}`,
         animal: draw.animal || null,
         isCompleted: true,
-        isActive: false
+        isActive: false,
+        isNext: false
       }));
       
       // Guardar en cache
