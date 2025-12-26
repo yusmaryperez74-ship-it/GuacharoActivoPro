@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { LotteryId, Animal } from '../types';
 import { ANIMALS } from '../constants';
-import { RealDataService } from '../services/realDataService';
+import { RealResultsService } from '../services/realResultsService';
 
 interface ManualResultEntryProps {
   lotteryId: LotteryId;
@@ -40,20 +40,29 @@ const ManualResultEntry: React.FC<ManualResultEntryProps> = ({
 
     setIsSubmitting(true);
     try {
-      // Reportar a la API comunitaria
-      await RealDataService.reportResult(lotteryId, selectedHour, selectedAnimal);
+      // Agregar resultado usando el servicio de resultados reales
+      const today = new Date();
+      const venezuelaTime = new Date(today.getTime() - (4 * 60 * 60 * 1000)); // UTC-4
+      const dateStr = venezuelaTime.toISOString().split('T')[0];
       
-      // Notificar al componente padre
-      onResultAdded(selectedHour, selectedAnimal);
+      const success = RealResultsService.addManualResult(lotteryId, dateStr, selectedHour, selectedAnimal);
       
-      // Limpiar formulario
-      setSelectedHour('');
-      setSelectedAnimal(null);
-      setSearchTerm('');
-      
-      onClose();
+      if (success) {
+        // Notificar al componente padre
+        onResultAdded(selectedHour, selectedAnimal);
+        
+        // Limpiar formulario
+        setSelectedHour('');
+        setSelectedAnimal(null);
+        setSearchTerm('');
+        
+        onClose();
+        console.log(`✅ Manual result added: ${dateStr} ${selectedHour} - ${selectedAnimal.name}`);
+      } else {
+        console.warn('⚠️ Result already exists or failed to add');
+      }
     } catch (error) {
-      console.error('Error reporting result:', error);
+      console.error('❌ Error adding manual result:', error);
     } finally {
       setIsSubmitting(false);
     }

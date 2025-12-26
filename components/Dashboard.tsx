@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Prediction, DrawResult, LotteryId } from '../types';
-import { generatePrediction, fetchRealResults, fetchExtendedHistory } from '../services/geminiService';
 import { getDrawSchedule, getNextDrawCountdown } from '../services/lotteryService';
 import { ValidationService, AccuracyMetrics } from '../services/validationService';
 import { NotificationService } from '../services/notificationService';
 import { PredictionService } from '../services/predictionService';
+import { RealResultsService } from '../services/realResultsService';
 import Navbar from './Navbar';
 import SmartAlerts from './SmartAlerts';
 import ManualResultEntry from './ManualResultEntry';
@@ -23,7 +23,6 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNavigate, toggleDarkMode, isDarkMode }) => {
   const [loading, setLoading] = useState(false);
   const [fetchingReal, setFetchingReal] = useState(false);
-  const [showUpdateToast, setShowUpdateToast] = useState(false);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [draws, setDraws] = useState<DrawResult[]>([]);
   const [history, setHistory] = useState<any[]>([]);
@@ -35,7 +34,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [showDebugLotoVen, setShowDebugLotoVen] = useState(false);
   const [showStatisticalAnalysis, setShowStatisticalAnalysis] = useState(false);
-  const [statisticalPrediction, setStatisticalPrediction] = useState<any>(null);
+  const [realDataStats, setRealDataStats] = useState<any>(null);
 
   const isLottoActivo = lotteryId === 'LOTTO_ACTIVO';
   const themeColor = isLottoActivo ? 'text-blue-500' : 'text-primary';
@@ -52,46 +51,32 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
   const hydrate = useCallback(async () => {
     setFetchingReal(true);
     try {
-      // Usar hora de Venezuela para la fecha de hoy
-      const now = new Date();
-      const venezuelaTime = new Date(now.getTime() - (4 * 60 * 60 * 1000)); // UTC-4
-      const today = venezuelaTime.toISOString().split('T')[0];
-
-      // Cargar historial primero (más rápido desde cache)
-      const historyData = await fetchExtendedHistory(lotteryId);
-      setHistory(historyData.history);
+      console.log(`🔄 [Dashboard] Loading REAL results for ${lotteryId}...`);
       
-      // Cargar resultados reales en paralelo (puede ser más lento)
-      fetchRealResults(lotteryId).then(realData => {
-        const mergedHistory = [...historyData.history];
+      // Cargar resultados reales desde LotoVen
+      const realResults = await RealResultsService.getHistoricalResults(lotteryId);
+      
+      if (realResults.success) {
+        // Actualizar draws con resultados del día
+        setDraws(getDrawSchedule(realResults.draws));
         
-        // Agregar resultados de hoy que no estén en el historial
-        realData.draws.forEach(rd => {
-          const exists = mergedHistory.find(h => h.date === today && h.hour === rd.hour);
-          if (!exists && rd.animal) {
-            mergedHistory.unshift({ 
-              date: today, 
-              hour: rd.hour, 
-              animal: rd.animal.name, 
-              number: rd.animal.number, 
-              animalData: rd.animal 
-            });
-          }
-        });
-
-        setDraws(getDrawSchedule(realData.draws as any));
-        setHistory(mergedHistory);
-        setShowUpdateToast(true);
-        setTimeout(() => setShowUpdateToast(false), 3000);
-      }).catch(e => {
-        console.error("Error loading real results:", e);
-        // Usar solo el historial si falla la carga de resultados reales
+        // Actualizar historial con datos reales persistentes
+        setHistory(realResults.history);
+        
+        // Actualizar estadísticas
+        const stats = RealResultsService.getHistoryStats(lotteryId);
+        setRealDataStats(stats);
+        
+        console.log(`✅ [Dashboard] Loaded ${realResults.history.length} real historical entries`);
+        console.log(`📊 [Dashboard] Date range: ${stats.dateRange.from} to ${stats.dateRange.to}`);
+      } else {
+        console.error(`❌ [Dashboard] Failed to load real results:`, realResults.sources);
+        // Mantener datos existentes en caso de error
         setDraws(getDrawSchedule([]));
-      });
+      }
 
-    } catch (e) {
-      console.error("Sync error", e);
-      // En caso de error total, usar datos de fallback
+    } catch (error) {
+      console.error("❌ [Dashboard] Error loading real data:", error);
       setDraws(getDrawSchedule([]));
     } finally {
       setFetchingReal(false);
@@ -116,7 +101,9 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
     if (loading || history.length === 0) return;
     setLoading(true);
     try {
-      // Generar predicción estadística moderna
+      console.log(`🎯 [Dashboard] Generating statistical prediction for ${lotteryId} with ${history.length} real results...`);
+      
+      // Generar predicción estadística basada SOLO en datos reales
       const statisticalResponse = await PredictionService.generatePrediction({ lotteryId });
       
       if (statisticalResponse.success && statisticalResponse.data) {
@@ -125,7 +112,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
           animal: animal.animal,
           probability: Math.round(animal.score),
           confidence: animal.confidence === 'alta' ? 'SEGURA' : 'MODERADA',
-          reasoning: animal.explanation,
+          reasoning: `Análisis estadístico: ${animal.explanation}`,
           factors: {
             frequency: animal.frequencyTotal,
             recentTrend: animal.frequencyRecent,
@@ -135,7 +122,6 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
         }));
         
         setPredictions(legacyPredictions);
-        setStatisticalPrediction(statisticalResponse.data);
         
         // Generar alertas inteligentes basadas en análisis estadístico
         const alerts = NotificationService.generateSmartAlerts(legacyPredictions, lotteryId, history);
@@ -143,27 +129,15 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
           NotificationService.saveAlerts(alerts);
           setUnreadAlerts(NotificationService.getUnreadCount(lotteryId));
         }
-      } else {
-        // Fallback a predicción legacy si falla el análisis estadístico
-        console.warn('Statistical analysis failed, using legacy prediction');
-        const results = await generatePrediction(lotteryId, history);
-        setPredictions(results);
         
-        const alerts = NotificationService.generateSmartAlerts(results, lotteryId, history);
-        if (alerts.length > 0) {
-          NotificationService.saveAlerts(alerts);
-          setUnreadAlerts(NotificationService.getUnreadCount(lotteryId));
-        }
+        console.log(`✅ [Dashboard] Generated predictions based on ${statisticalResponse.data.totalResults} real results`);
+      } else {
+        console.error(`❌ [Dashboard] Statistical analysis failed:`, statisticalResponse.error);
+        setPredictions([]);
       }
-    } catch (e) {
-      console.error("Prediction error", e);
-      // Fallback a predicción legacy en caso de error
-      try {
-        const results = await generatePrediction(lotteryId, history);
-        setPredictions(results);
-      } catch (fallbackError) {
-        console.error("Fallback prediction also failed", fallbackError);
-      }
+    } catch (error) {
+      console.error("❌ [Dashboard] Prediction error:", error);
+      setPredictions([]);
     } finally {
       setLoading(false);
     }
@@ -252,6 +226,13 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
               <button onClick={() => hydrate()} className={`size-10 rounded-full bg-white/20 dark:bg-black/20 flex items-center justify-center ${fetchingReal ? 'animate-spin' : ''}`}>
                 <span className="material-symbols-outlined text-xl">refresh</span>
               </button>
+              <button 
+                onClick={() => RealResultsService.clearTodayCache(lotteryId)}
+                className="size-10 rounded-full bg-white/20 dark:bg-black/20 flex items-center justify-center"
+                title="Limpiar cache y forzar actualización"
+              >
+                <span className="material-symbols-outlined text-xl">cached</span>
+              </button>
               <button onClick={toggleDarkMode} className="size-10 rounded-full bg-white/20 dark:bg-black/20 flex items-center justify-center">
                 <span className="material-symbols-outlined">{isDarkMode ? 'light_mode' : 'dark_mode'}</span>
               </button>
@@ -269,7 +250,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
                <div className="flex items-center gap-2">
                  <div className={`size-2 rounded-full ${fetchingReal ? 'bg-primary animate-pulse' : 'bg-green-500'}`}></div>
                  <span className="text-[8px] opacity-40">
-                   {fetchingReal ? 'Obteniendo de LotoVen...' : 'LotoVen'}
+                   {fetchingReal ? 'Cargando desde LotoVen...' : realDataStats ? `${realDataStats.totalEntries} resultados reales` : 'LotoVen'}
                  </span>
                </div>
              </div>
@@ -286,7 +267,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
                  {fetchingReal ? (
                    <div className="flex items-center gap-2">
                      <div className="size-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                     <span>Obteniendo resultados en tiempo real...</span>
+                     <span>Cargando resultados reales desde LotoVen...</span>
                    </div>
                  ) : (
                    <div className="flex items-center gap-2">
@@ -382,7 +363,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
             <div className="flex flex-col">
               <h3 className="text-xl font-black">Análisis Estadístico</h3>
               <p className="text-[9px] font-black opacity-40 uppercase tracking-widest">
-                Basado en {history.length} sorteos históricos de {lotteryId}
+                Basado en {history.length} sorteos reales de {lotteryId} • Solo datos de LotoVen
               </p>
             </div>
             <div className="flex gap-2">
@@ -427,8 +408,8 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
                 <span className={`material-symbols-outlined text-6xl ${isLottoActivo ? 'text-blue-500' : 'text-primary'}`}>analytics</span>
                 <div className="space-y-1">
                    <p className="font-black uppercase tracking-widest text-sm">Análisis Estadístico Listo</p>
-                   <p className="text-[10px] font-bold">Haz clic en "RECALCULAR" para analizar {history.length} sorteos históricos de {isLottoActivo ? 'Lotto Activo' : 'Guácharo'}.</p>
-                   <p className="text-[8px] opacity-60 mt-2">Sistema basado en frecuencias, tendencias y patrones históricos</p>
+                   <p className="text-[10px] font-bold">Haz clic en "RECALCULAR" para analizar {history.length} sorteos reales de {isLottoActivo ? 'Lotto Activo' : 'Guácharo'}.</p>
+                   <p className="text-[8px] opacity-60 mt-2">Sistema basado en datos reales de LotoVen • Sin simulaciones</p>
                 </div>
               </div>
             )}

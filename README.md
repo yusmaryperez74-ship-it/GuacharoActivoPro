@@ -1,10 +1,25 @@
-# 🎯 GuacharoAI Pro - Sistema de Análisis Estadístico para Lotería de Animalitos
+# 🎯 GuacharoAI Pro - Análisis Estadístico con Datos Reales de Lotería de Animalitos
 
-Una aplicación web moderna que utiliza **análisis estadístico avanzado** basado en datos históricos reales para generar predicciones de lotería de animalitos (Guácharo Activo y Lotto Activo).
+Una aplicación web que utiliza **ÚNICAMENTE datos reales** de LotoVen para generar análisis estadístico de lotería de animalitos (Guácharo Activo y Lotto Activo). **Sin simulaciones, sin datos ficticios, solo resultados verificados.**
 
 ## ⚠️ **AVISO LEGAL IMPORTANTE**
 
-**Esta aplicación muestra análisis estadístico basado en resultados históricos. NO garantiza premios ni resultados futuros. La lotería es un proceso aleatorio.**
+**Esta aplicación muestra análisis estadístico basado en resultados históricos REALES. NO garantiza premios ni resultados futuros. La lotería es un proceso aleatorio. Todos los datos provienen de fuentes verificadas sin simulaciones.**
+
+## 🌐 **FUENTE DE DATOS: SOLO LOTOVEN**
+
+### **Datos 100% Reales**
+- ✅ **Fuente Única**: https://lotoven.com/animalitos/
+- ✅ **Sin Simulaciones**: Cero datos ficticios o generados
+- ✅ **Historial Persistente**: Los resultados no cambian una vez guardados
+- ✅ **Verificación Continua**: Actualización solo con datos reales nuevos
+- ✅ **Cache Inteligente**: Optimización sin comprometer veracidad
+
+### **Garantías de Integridad**
+- 🔒 **Datos Inmutables**: El historial no se modifica artificialmente
+- 🔒 **Fuente Verificada**: Solo LotoVen como fuente confiable
+- 🔒 **Sin Fallbacks Ficticios**: No hay datos de respaldo simulados
+- 🔒 **Transparencia Total**: Código abierto y auditable
 
 ## 🏗️ **Arquitectura del Sistema**
 
@@ -114,23 +129,23 @@ interface PredictionScore {
 
 ## 🎯 **Servicios Principales**
 
-### **StatisticalAnalysisService**
-- Análisis estadístico puro basado en datos históricos
+### **RealResultsService** - Gestor de Datos Reales
+- Conexión directa con LotoVen
+- Historial persistente e inmutable
+- Cache optimizado para datos reales
+- Sin simulaciones ni datos ficticios
+
+### **StatisticalAnalysisService** - Motor Estadístico Puro
+- Análisis estadístico puro basado en datos históricos reales
 - Algoritmos de frecuencia y tendencias
 - Sistema de puntuación configurable
 - Categorización automática de animales
 
-### **PredictionService**
-- Integración con fuentes de datos
+### **PredictionService** - Integración y Cache
+- Integración con fuentes de datos reales únicamente
 - Cache y optimización de rendimiento
-- API REST para predicciones
 - Análisis comparativo entre loterías
-
-### **LotoVenService**
-- Scraping en tiempo real de LotoVen
-- Parsing HTML inteligente
-- Sistema de proxies CORS
-- Manejo robusto de errores
+- Sin fallbacks a datos simulados
 
 ## 📱 **Componentes de UI**
 

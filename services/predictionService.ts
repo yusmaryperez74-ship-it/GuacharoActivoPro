@@ -1,14 +1,15 @@
 import { LotteryId } from '../types';
 import { StatisticalAnalysisService, StatisticalPrediction, HistoricalResult } from './statisticalAnalysisService';
-import { fetchExtendedHistory } from './geminiService';
+import { RealResultsService, RealHistoryEntry } from './realResultsService';
 
 /**
  * SERVICIO DE PREDICCIÓN BASADO EN ANÁLISIS ESTADÍSTICO
  * 
- * Integra datos históricos reales con algoritmos estadísticos
+ * Integra ÚNICAMENTE datos históricos reales de LotoVen con algoritmos estadísticos
  * para generar predicciones basadas en tendencias históricas.
  * 
  * IMPORTANTE: No garantiza premios ni resultados futuros.
+ * NO utiliza simulaciones ni datos ficticios.
  */
 
 export interface PredictionRequest {
@@ -111,18 +112,18 @@ export class PredictionService {
   }
   
   /**
-   * Obtener datos históricos formateados para análisis
+   * Obtener datos históricos reales formateados para análisis
    */
   private static async getHistoricalData(lotteryId: LotteryId, maxResults?: number): Promise<HistoricalResult[]> {
     try {
-      // Obtener historial extendido
-      const historyResponse = await fetchExtendedHistory(lotteryId);
+      // Obtener historial real desde LotoVen
+      const realResults = await RealResultsService.getHistoricalResults(lotteryId);
       
-      if (!historyResponse.success || !historyResponse.history) {
-        throw new Error('No se pudieron obtener datos históricos');
+      if (!realResults.success || realResults.history.length === 0) {
+        throw new Error('No se pudieron obtener datos históricos reales');
       }
       
-      let history = historyResponse.history;
+      let history = realResults.history;
       
       // Limitar resultados si se especifica
       if (maxResults && maxResults > 0) {
@@ -130,23 +131,21 @@ export class PredictionService {
       }
       
       // Convertir al formato requerido por el análisis estadístico
-      const formattedResults: HistoricalResult[] = history
-        .filter(h => h.animalData) // Solo resultados con datos de animal válidos
-        .map(h => ({
-          date: h.date,
-          hour: h.hour,
-          animal: h.animalData!,
-          animalNumber: h.animalData!.number,
-          animalName: h.animalData!.name
-        }));
+      const formattedResults: HistoricalResult[] = history.map(h => ({
+        date: h.date,
+        hour: h.hour,
+        animal: h.animal,
+        animalNumber: h.animal.number,
+        animalName: h.animal.name
+      }));
       
-      console.log(`📊 [Prediction] Loaded ${formattedResults.length} historical results for ${lotteryId}`);
+      console.log(`📊 [Prediction] Loaded ${formattedResults.length} REAL historical results for ${lotteryId}`);
       
       return formattedResults;
       
     } catch (error) {
-      console.error(`❌ [Prediction] Error loading historical data:`, error);
-      throw new Error('Error al cargar datos históricos');
+      console.error(`❌ [Prediction] Error loading real historical data:`, error);
+      throw new Error('Error al cargar datos históricos reales');
     }
   }
   
