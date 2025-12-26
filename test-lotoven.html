@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test LotoVen Integration</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .result { margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .loading { background-color: #fff3cd; border-color: #ffeaa7; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Test LotoVen Integration</h1>
+    
+    <div>
+        <button onclick="testLotoVen('GUACHARO')">Test Guácharo Activo</button>
+        <button onclick="testLotoVen('LOTTO_ACTIVO')">Test Lotto Activo</button>
+        <button onclick="testDirectFetch()">Test Direct Fetch</button>
+    </div>
+    
+    <div id="results"></div>
+
+    <script>
+        // Simplified version of the LotoVen service for testing
+        const CORS_PROXIES = [
+            'https://api.allorigins.win/get?url=',
+            'https://cors-anywhere.herokuapp.com/',
+            'https://api.codetabs.com/v1/proxy?quest='
+        ];
+
+        const ANIMALS = [
+            { id: '01', number: '01', name: 'Delfín', emoji: '🐬' },
+            { id: '02', number: '02', name: 'Ballena', emoji: '🐋' },
+            { id: '03', number: '03', name: 'Caimán', emoji: '🐊' },
+            { id: '04', number: '04', name: 'Alacrán', emoji: '🦂' },
+            { id: '05', number: '05', name: 'León', emoji: '🦁' },
+            { id: '06', number: '06', name: 'Rana', emoji: '🐸' },
+            { id: '07', number: '07', name: 'Perico', emoji: '🦜' },
+            { id: '08', number: '08', name: 'Ratón', emoji: '🐭' },
+            { id: '09', number: '09', name: 'Águila', emoji: '🦅' },
+            { id: '10', number: '10', name: 'Tigre', emoji: '🐅' },
+            { id: '11', number: '11', name: 'Gato', emoji: '🐱' },
+            { id: '12', number: '12', name: 'Caballo', emoji: '🐴' },
+            { id: '13', number: '13', name: 'Mono', emoji: '🐵' },
+            { id: '14', number: '14', name: 'Paloma', emoji: '🕊️' },
+            { id: '15', number: '15', name: 'Zorro', emoji: '🦊' },
+            { id: '16', number: '16', name: 'Oso', emoji: '🐻' },
+            { id: '17', number: '17', name: 'Pavo', emoji: '🦃' },
+            { id: '18', number: '18', name: 'Burro', emoji: '🫏' },
+            { id: '19', number: '19', name: 'Chivo', emoji: '🐐' },
+            { id: '20', number: '20', name: 'Cochino', emoji: '🐷' },
+            { id: '21', number: '21', name: 'Gallo', emoji: '🐓' },
+            { id: '22', number: '22', name: 'Camello', emoji: '🐪' },
+            { id: '23', number: '23', name: 'Cebra', emoji: '🦓' },
+            { id: '24', number: '24', name: 'Iguana', emoji: '🦎' },
+            { id: '25', number: '25', name: 'Gallina', emoji: '🐔' },
+            { id: '26', number: '26', name: 'Vaca', emoji: '🐄' },
+            { id: '27', number: '27', name: 'Perro', emoji: '🐕' },
+            { id: '28', number: '28', name: 'Zamuro', emoji: '🦅' },
+            { id: '29', number: '29', name: 'Elefante', emoji: '🐘' },
+            { id: '30', number: '30', name: 'Caimán', emoji: '🐊' },
+            { id: '31', number: '31', name: 'Lapa', emoji: '🦜' },
+            { id: '32', number: '32', name: 'Ardilla', emoji: '🐿️' },
+            { id: '33', number: '33', name: 'Pescado', emoji: '🐟' },
+            { id: '34', number: '34', name: 'Venado', emoji: '🦌' },
+            { id: '35', number: '35', name: 'Jirafa', emoji: '🦒' },
+            { id: '36', number: '36', name: 'Culebra', emoji: '🐍' }
+        ];
+
+        function addResult(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = message;
+            document.getElementById('results').appendChild(div);
+            div.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function findAnimalByNameOrNumber(input) {
+            if (!input) return null;
+            
+            const cleanInput = input.toString().trim().toLowerCase();
+            
+            // Buscar por número exacto
+            const numberMatch = cleanInput.match(/\b(\d{1,2})\b/);
+            if (numberMatch) {
+                const num = numberMatch[1].padStart(2, '0');
+                const byNumber = ANIMALS.find(a => a.number === num || a.id === num);
+                if (byNumber) return byNumber;
+            }
+
+            // Buscar por nombre (con normalización)
+            const normalizedInput = cleanInput
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "") // Remover acentos
+                .replace(/[^a-z]/g, ''); // Solo letras
+
+            if (normalizedInput.length < 2) return null;
+
+            return ANIMALS.find(a => {
+                const normalizedName = a.name.toLowerCase()
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .replace(/[^a-z]/g, '');
+                
+                return normalizedName === normalizedInput || 
+                       normalizedName.includes(normalizedInput) || 
+                       normalizedInput.includes(normalizedName);
+            }) || null;
+        }
+
+        async function testLotoVen(lotteryId) {
+            addResult(`🔍 Testing ${lotteryId} from LotoVen...`, 'loading');
+            
+            try {
+                // Test with first proxy
+                const proxy = CORS_PROXIES[0];
+                const proxyUrl = `${proxy}${encodeURIComponent('https://lotoven.com/animalitos/')}`;
+                
+                addResult(`📡 Using proxy: ${proxy}`, 'info');
+                
+                const response = await fetch(proxyUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                let html;
+                if (proxy.includes('allorigins')) {
+                    const data = await response.json();
+                    html = data.contents;
+                } else {
+                    html = await response.text();
+                }
+
+                addResult(`📄 HTML received: ${html.length} characters`, 'info');
+                
+                // Show first 500 chars of HTML for inspection
+                addResult(`<pre>HTML Preview:\n${html.substring(0, 500)}...</pre>`, 'info');
+
+                // Try to parse results
+                const draws = [];
+                const patterns = [
+                    // Patrón 1: Tabla con resultados
+                    /<tr[^>]*>\s*<td[^>]*>([^<]*(?:Guácharo|Lotto)[^<]*)<\/td>\s*<td[^>]*>(\d{2}:\d{2})<\/td>\s*<td[^>]*>([^<]+)<\/td>\s*<td[^>]*>(\d{2})<\/td>/gi,
+                    
+                    // Patrón 2: Divs con clase resultado
+                    /<div[^>]*class="[^"]*resultado[^"]*"[^>]*>.*?(\d{2}:\d{2}).*?([A-Za-z]+).*?(\d{2}).*?<\/div>/gi,
+                    
+                    // Patrón 3: Estructura más simple
+                    /<td[^>]*>(\d{2}:\d{2})<\/td>\s*<td[^>]*>([^<]+)<\/td>\s*<td[^>]*>(\d{2})<\/td>/gi
+                ];
+
+                let foundResults = false;
+                for (const pattern of patterns) {
+                    let match;
+                    let matchCount = 0;
+                    
+                    while ((match = pattern.exec(html)) !== null && matchCount < 10) {
+                        matchCount++;
+                        foundResults = true;
+                        
+                        let hour, animalStr, lotteryType = '';
+
+                        if (match.length === 5) {
+                            [, lotteryType, hour, animalStr] = match;
+                        } else if (match.length === 4) {
+                            [, hour, animalStr] = match;
+                        } else if (match.length === 3) {
+                            [, hour, animalStr] = match;
+                        } else {
+                            continue;
+                        }
+
+                        const animal = findAnimalByNameOrNumber(animalStr);
+                        
+                        addResult(`🎯 Found match: ${hour} - ${animalStr} ${animal ? `(${animal.name} #${animal.number})` : '(not found)'}`, animal ? 'success' : 'error');
+                        
+                        if (animal) {
+                            draws.push({ hour, animal });
+                        }
+                    }
+                    
+                    if (foundResults) break;
+                }
+
+                if (draws.length > 0) {
+                    addResult(`✅ Successfully parsed ${draws.length} results for ${lotteryId}`, 'success');
+                } else {
+                    addResult(`⚠️ No results found in HTML. The website structure might have changed.`, 'error');
+                }
+
+            } catch (error) {
+                addResult(`❌ Error: ${error.message}`, 'error');
+                console.error('Test error:', error);
+            }
+        }
+
+        async function testDirectFetch() {
+            addResult(`🔍 Testing direct fetch to LotoVen...`, 'loading');
+            
+            try {
+                const response = await fetch('https://lotoven.com/animalitos/', {
+                    method: 'GET',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const html = await response.text();
+                addResult(`✅ Direct fetch successful: ${html.length} characters`, 'success');
+                addResult(`<pre>HTML Preview:\n${html.substring(0, 500)}...</pre>`, 'info');
+
+            } catch (error) {
+                addResult(`❌ Direct fetch failed (expected due to CORS): ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-run test on page load
+        window.onload = function() {
+            addResult('🚀 LotoVen Integration Test Ready', 'info');
+            addResult('Click the buttons above to test different scenarios', 'info');
+        };
+    </script>
+</body>
+</html>

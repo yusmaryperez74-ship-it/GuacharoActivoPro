@@ -8,6 +8,7 @@ import { NotificationService } from '../services/notificationService';
 import Navbar from './Navbar';
 import SmartAlerts from './SmartAlerts';
 import ManualResultEntry from './ManualResultEntry';
+import DebugLotoVen from './DebugLotoVen';
 
 interface DashboardProps {
   lotteryId: LotteryId;
@@ -30,6 +31,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
   const [showAlerts, setShowAlerts] = useState(false);
   const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [showManualEntry, setShowManualEntry] = useState(false);
+  const [showDebugLotoVen, setShowDebugLotoVen] = useState(false);
 
   const isLottoActivo = lotteryId === 'LOTTO_ACTIVO';
   const themeColor = isLottoActivo ? 'text-blue-500' : 'text-primary';
@@ -184,6 +186,13 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
                     <span className="text-white text-[10px] font-bold">{unreadAlerts}</span>
                   </div>
                 )}
+              </button>
+              <button 
+                onClick={() => setShowDebugLotoVen(true)}
+                className="size-10 rounded-full bg-white/20 dark:bg-black/20 flex items-center justify-center"
+                title="Debug LotoVen"
+              >
+                <span className="material-symbols-outlined text-xl">bug_report</span>
               </button>
               <button 
                 onClick={() => setShowManualEntry(true)}
@@ -387,6 +396,11 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
           hydrate();
           console.log(`✅ Result reported: ${animal.name} at ${hour}`);
         }}
+      />
+      
+      <DebugLotoVen
+        isVisible={showDebugLotoVen}
+        onClose={() => setShowDebugLotoVen(false)}
       />
     </div>
   );
