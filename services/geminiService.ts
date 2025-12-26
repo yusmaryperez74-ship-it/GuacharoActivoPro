@@ -164,25 +164,61 @@ function getTimeContext(hour: number): string {
 export const fetchRealResults = async (lotteryId: LotteryId): Promise<{ draws: Partial<DrawResult>[], sources: any[] }> => {
   try {
     const url = LOTTERY_URLS[lotteryId];
-    const today = new Date().toLocaleDateString('es-ES');
+    
+    // Usar hora de Venezuela para la fecha
+    const now = new Date();
+    const venezuelaTime = new Date(now.getTime() - (4 * 60 * 60 * 1000)); // UTC-4
+    const today = venezuelaTime.toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: '2-digit', 
+      year: 'numeric'
+    });
+    
+    // Prompt más específico y rápido
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Consulta el sitio ${url} y extrae los resultados de ${lotteryId} para hoy ${today}.
-      NECESITO: Hora exacta y animal (nombre o número).
-      RETORNA JSON: { "draws": [{ "hour": "HH:mm", "animal": "Nombre/Número" }] }`,
-      config: { tools: [{ googleSearch: {} }] },
+      contents: `TAREA URGENTE: Extrae SOLO los resultados de ${lotteryId} para HOY ${today} desde ${url}.
+
+FORMATO REQUERIDO - JSON exacto:
+{ "draws": [{ "hour": "09:00", "animal": "León" }, { "hour": "10:00", "animal": "Tigre" }] }
+
+INSTRUCCIONES:
+- Solo resultados de HOY ${today}
+- Solo sorteos YA REALIZADOS (no futuros)
+- Formato hora: "HH:mm" (ej: "09:00", "14:00")
+- Animal: nombre exacto o número
+- Máximo 11 sorteos por día
+- Si no hay resultados, retorna: { "draws": [] }`,
+      config: { 
+        tools: [{ googleSearch: {} }],
+        temperature: 0.1, // Más determinístico
+        topP: 0.8
+      },
     });
 
     const data = safeParseJSON(response.text || "", { draws: [] });
-    return {
-      draws: (data.draws || []).map((d: any) => ({
+    const validDraws = (data.draws || [])
+      .map((d: any) => ({
         hour: d.hour,
         animal: findAnimalByFlexibleInput(d.animal),
         isCompleted: true
-      })).filter((d: any) => d.animal !== null),
-      sources: [{ uri: url, title: `Sorteos Hoy - ${lotteryId}` }]
+      }))
+      .filter((d: any) => {
+        // Validar que la hora sea válida y el animal exista
+        return d.animal !== null && 
+               d.hour && 
+               /^\d{2}:\d{2}$/.test(d.hour) &&
+               DRAW_HOURS.includes(d.hour);
+      });
+
+    return {
+      draws: validDraws,
+      sources: [{ uri: url, title: `Resultados ${lotteryId} - ${today}` }]
     };
-  } catch (error) { return { draws: [], sources: [] }; }
+  } catch (error) { 
+    console.error("Error fetching real results:", error);
+    return { draws: [], sources: [] }; 
+  }
 };
 
 export const fetchExtendedHistory = async (lotteryId: LotteryId): Promise<{ history: any[], sources: any[] }> => {
@@ -191,35 +227,76 @@ export const fetchExtendedHistory = async (lotteryId: LotteryId): Promise<{ hist
   const cached = localStorage.getItem(cacheKey);
   const lastFetch = localStorage.getItem(fetchKey);
 
+  // Cache válido por 15 minutos
   if (cached && lastFetch && (Date.now() - parseInt(lastFetch)) < 900000) {
     return { history: JSON.parse(cached), sources: [] };
   }
 
   try {
     const url = LOTTERY_URLS[lotteryId];
+    
+    // Usar hora de Venezuela
+    const now = new Date();
+    const venezuelaTime = new Date(now.getTime() - (4 * 60 * 60 * 1000)); // UTC-4
+    
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Accede a ${url} y extrae los últimos 200 resultados de la lotería ${lotteryId}.
-      IMPORTANTE: Debes capturar los datos cronológicamente.
-      JSON REQUERIDO: { "history": [{ "date": "YYYY-MM-DD", "hour": "HH:mm", "animal": "Nombre", "number": "Número" }] }`,
-      config: { tools: [{ googleSearch: {} }] },
+      contents: `TAREA: Extrae historial de resultados de ${lotteryId} desde ${url}.
+
+NECESITO: Últimos 150-200 resultados cronológicos (más recientes primero).
+
+FORMATO JSON EXACTO:
+{ "history": [
+  { "date": "2024-12-26", "hour": "19:00", "animal": "León", "number": "05" },
+  { "date": "2024-12-26", "hour": "18:00", "animal": "Tigre", "number": "10" }
+]}
+
+REGLAS:
+- Fechas formato YYYY-MM-DD
+- Horas formato HH:mm
+- Solo resultados CONFIRMADOS
+- Orden cronológico descendente (más reciente primero)
+- Incluir fecha, hora, animal y número`,
+      config: { 
+        tools: [{ googleSearch: {} }],
+        temperature: 0.1,
+        topP: 0.8
+      },
     });
 
     const data = safeParseJSON(response.text || "", { history: [] });
-    const history = (data.history || []).map((item: any) => ({
-      ...item,
-      animalData: findAnimalByFlexibleInput(item.animal || item.number)
-    })).filter((h: any) => h.animalData);
+    const history = (data.history || [])
+      .map((item: any) => ({
+        ...item,
+        animalData: findAnimalByFlexibleInput(item.animal || item.number)
+      }))
+      .filter((h: any) => {
+        // Validar que tenga datos válidos
+        return h.animalData && 
+               h.date && 
+               h.hour && 
+               /^\d{4}-\d{2}-\d{2}$/.test(h.date) &&
+               /^\d{2}:\d{2}$/.test(h.hour);
+      })
+      .slice(0, 200); // Limitar a 200 resultados
 
     if (history.length > 0) {
       localStorage.setItem(cacheKey, JSON.stringify(history));
       localStorage.setItem(fetchKey, Date.now().toString());
-      return { history, sources: [{ uri: url, title: `Base de Datos ${lotteryId}` }] };
+      return { history, sources: [{ uri: url, title: `Historial ${lotteryId}` }] };
     }
     
-    return { history: cached ? JSON.parse(cached) : generateFallbackHistory(lotteryId), sources: [] };
+    // Si no hay datos, usar cache anterior o generar fallback
+    return { 
+      history: cached ? JSON.parse(cached) : generateFallbackHistory(lotteryId), 
+      sources: [] 
+    };
   } catch (error) { 
-    return { history: cached ? JSON.parse(cached) : generateFallbackHistory(lotteryId), sources: [] }; 
+    console.error("Error fetching history:", error);
+    return { 
+      history: cached ? JSON.parse(cached) : generateFallbackHistory(lotteryId), 
+      sources: [] 
+    }; 
   }
 };
 
@@ -229,14 +306,43 @@ function generateFallbackHistory(id: LotteryId): any[] {
     ? ['09:00', '10:00', '11:00', '12:00', '13:00', '16:00', '17:00', '18:00', '19:00']
     : ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
     
-  for (let i = 0; i < 20; i++) {
-    const d = new Date();
+  // Usar hora de Venezuela para generar fechas realistas
+  const now = new Date();
+  const venezuelaTime = new Date(now.getTime() - (4 * 60 * 60 * 1000)); // UTC-4
+  
+  for (let i = 0; i < 30; i++) { // 30 días hacia atrás
+    const d = new Date(venezuelaTime);
     d.setDate(d.getDate() - i);
+    
+    // Solo generar para días de la semana (lunes a domingo, pero más resultados en días laborables)
+    const dayOfWeek = d.getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const hoursToUse = isWeekend ? hours.slice(0, -2) : hours; // Menos sorteos en fines de semana
+    
     const dateStr = d.toISOString().split('T')[0];
-    hours.forEach(hour => {
-      const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
-      fallback.push({ date: dateStr, hour, animal: animal.name, number: animal.number, animalData: animal });
+    
+    hoursToUse.forEach(hour => {
+      // Solo agregar si la fecha/hora ya pasó
+      const sorteoTime = new Date(`${dateStr}T${hour}:00-04:00`);
+      if (sorteoTime < venezuelaTime) {
+        const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+        fallback.push({ 
+          date: dateStr, 
+          hour, 
+          animal: animal.name, 
+          number: animal.number, 
+          animalData: animal 
+        });
+      }
     });
   }
-  return fallback.slice(0, 200);
+  
+  // Ordenar por fecha y hora descendente (más reciente primero)
+  return fallback
+    .sort((a, b) => {
+      const timeA = new Date(`${a.date}T${a.hour}`).getTime();
+      const timeB = new Date(`${b.date}T${b.hour}`).getTime();
+      return timeB - timeA;
+    })
+    .slice(0, 200);
 }

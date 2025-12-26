@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Prediction, DrawResult, LotteryId } from '../types';
 import { generatePrediction, fetchRealResults, fetchExtendedHistory } from '../services/geminiService';
 import { getDrawSchedule, getNextDrawCountdown } from '../services/lotteryService';
@@ -44,27 +44,47 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
   const hydrate = useCallback(async () => {
     setFetchingReal(true);
     try {
-      const [realData, historyData] = await Promise.all([
-        fetchRealResults(lotteryId),
-        fetchExtendedHistory(lotteryId)
-      ]);
+      // Usar hora de Venezuela para la fecha de hoy
+      const now = new Date();
+      const venezuelaTime = new Date(now.getTime() - (4 * 60 * 60 * 1000)); // UTC-4
+      const today = venezuelaTime.toISOString().split('T')[0];
 
-      const today = new Date().toISOString().split('T')[0];
-      const mergedHistory = [...historyData.history];
+      // Cargar historial primero (más rápido desde cache)
+      const historyData = await fetchExtendedHistory(lotteryId);
+      setHistory(historyData.history);
       
-      realData.draws.forEach(rd => {
-        const exists = mergedHistory.find(h => h.date === today && h.hour === rd.hour);
-        if (!exists && rd.animal) {
-          mergedHistory.unshift({ date: today, hour: rd.hour, animal: rd.animal.name, number: rd.animal.number, animalData: rd.animal });
-        }
+      // Cargar resultados reales en paralelo (puede ser más lento)
+      fetchRealResults(lotteryId).then(realData => {
+        const mergedHistory = [...historyData.history];
+        
+        // Agregar resultados de hoy que no estén en el historial
+        realData.draws.forEach(rd => {
+          const exists = mergedHistory.find(h => h.date === today && h.hour === rd.hour);
+          if (!exists && rd.animal) {
+            mergedHistory.unshift({ 
+              date: today, 
+              hour: rd.hour, 
+              animal: rd.animal.name, 
+              number: rd.animal.number, 
+              animalData: rd.animal 
+            });
+          }
+        });
+
+        setDraws(getDrawSchedule(realData.draws as any));
+        setHistory(mergedHistory);
+        setShowUpdateToast(true);
+        setTimeout(() => setShowUpdateToast(false), 3000);
+      }).catch(e => {
+        console.error("Error loading real results:", e);
+        // Usar solo el historial si falla la carga de resultados reales
+        setDraws(getDrawSchedule([]));
       });
 
-      setDraws(getDrawSchedule(realData.draws as any));
-      setHistory(mergedHistory);
-      setShowUpdateToast(true);
-      setTimeout(() => setShowUpdateToast(false), 3000);
     } catch (e) {
       console.error("Sync error", e);
+      // En caso de error total, usar datos de fallback
+      setDraws(getDrawSchedule([]));
     } finally {
       setFetchingReal(false);
     }
@@ -104,7 +124,24 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
     }
   };
 
-  const lastCompletedDraw = [...draws].reverse().find(d => d.isCompleted && d.animal);
+  const lastCompletedDraw = React.useMemo(() => {
+    // Buscar el último sorteo completado con resultado real (no solo por tiempo)
+    const completedWithResults = draws.filter(d => d.animal !== null);
+    if (completedWithResults.length > 0) {
+      return completedWithResults[completedWithResults.length - 1];
+    }
+    
+    // Si no hay resultados reales, buscar el último que debería estar completado por tiempo
+    const now = new Date();
+    const venezuelaTime = new Date(now.getTime() - (4 * 60 * 60 * 1000)); // UTC-4
+    const currentMinutes = venezuelaTime.getHours() * 60 + venezuelaTime.getMinutes();
+    
+    return [...draws].reverse().find(d => {
+      const [h, m] = d.hour.split(':').map(Number);
+      const drawMinutes = h * 60 + m;
+      return currentMinutes >= (drawMinutes + 10); // 10 minutos después del sorteo
+    });
+  }, [draws]);
 
   return (
     <div className="flex h-full flex-col bg-background-light dark:bg-background-dark overflow-hidden">
@@ -173,7 +210,21 @@ const Dashboard: React.FC<DashboardProps> = ({ lotteryId, onLotteryChange, onNav
                    <p className="text-xs font-bold opacity-60"># {lastCompletedDraw.animal?.number} • {lastCompletedDraw.label}</p>
                  </div>
                </div>
-             ) : <div className="h-14 flex items-center opacity-30 italic text-sm">Escaneando resultados recientes...</div>}
+             ) : (
+               <div className="h-14 flex items-center opacity-30 italic text-sm">
+                 {fetchingReal ? (
+                   <div className="flex items-center gap-2">
+                     <div className="size-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                     <span>Obteniendo resultados en tiempo real...</span>
+                   </div>
+                 ) : (
+                   <div className="flex items-center gap-2">
+                     <span className="material-symbols-outlined text-lg">schedule</span>
+                     <span>Esperando próximo sorteo...</span>
+                   </div>
+                 )}
+               </div>
+             )}
           </div>
         </div>
 

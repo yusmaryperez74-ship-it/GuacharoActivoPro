@@ -294,41 +294,71 @@ export class PredictionEngine {
 }
 
 export const getDrawSchedule = (realResults: Partial<DrawResult>[] = []): DrawResult[] => {
+  // Usar hora de Venezuela (UTC-4)
   const now = new Date();
-  const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+  const venezuelaTime = new Date(now.getTime() - (4 * 60 * 60 * 1000)); // UTC-4
+  const currentTotalMinutes = venezuelaTime.getHours() * 60 + venezuelaTime.getMinutes();
 
   return DRAW_HOURS.map((hourStr) => {
     const [h, m] = hourStr.split(':').map(Number);
     const drawTotalMinutes = h * 60 + m;
     const realMatch = realResults.find(r => r.hour === hourStr);
     
-    const isCompleted = currentTotalMinutes >= (drawTotalMinutes + 5) || !!realMatch;
+    // Un sorteo está completado solo si:
+    // 1. Tenemos el resultado real, O
+    // 2. Han pasado al menos 10 minutos después de la hora del sorteo
+    const isCompleted = !!realMatch || (currentTotalMinutes >= (drawTotalMinutes + 10));
+    
+    // El próximo sorteo es el primero que no está completado y es futuro
+    const isNext = !isCompleted && DRAW_HOURS.findIndex(hS => {
+      const [h2, m2] = hS.split(':').map(Number);
+      const drawMinutes = h2 * 60 + m2;
+      return drawMinutes > currentTotalMinutes && !realResults.find(r => r.hour === hS);
+    }) === DRAW_HOURS.indexOf(hourStr);
     
     return {
       hour: hourStr,
       label: h >= 12 ? (h === 12 ? '12:00 PM' : `${h-12}:00 PM`) : `${h}:00 AM`,
       animal: realMatch?.animal || null,
       isCompleted,
-      isNext: !isCompleted && DRAW_HOURS.findIndex(hS => {
-        const [h2, m2] = hS.split(':').map(Number);
-        return (h2 * 60 + m2) > currentTotalMinutes;
-      }) === DRAW_HOURS.indexOf(hourStr)
+      isNext
     };
   });
 };
 
 export const getNextDrawCountdown = (): string => {
+  // Usar hora de Venezuela (UTC-4)
   const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const venezuelaTime = new Date(now.getTime() - (4 * 60 * 60 * 1000)); // UTC-4
+  const currentMinutes = venezuelaTime.getHours() * 60 + venezuelaTime.getMinutes();
+  
   const nextDraw = DRAW_HOURS.find(hStr => {
     const [h, m] = hStr.split(':').map(Number);
     return (h * 60 + m) > currentMinutes;
   });
-  if (!nextDraw) return "Mañana 09:00 AM";
+  
+  if (!nextDraw) {
+    // Si no hay más sorteos hoy, mostrar el primero de mañana
+    const tomorrow = new Date(venezuelaTime);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    const diffMs = tomorrow.getTime() - venezuelaTime.getTime();
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m (mañana 09:00 AM)`;
+  }
+  
   const [nh, nm] = nextDraw.split(':').map(Number);
   const diff = (nh * 60 + nm) - currentMinutes;
   const h = Math.floor(diff / 60);
   const m = diff % 60;
-  const s = 59 - now.getSeconds();
-  return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
+  const s = 59 - venezuelaTime.getSeconds();
+  
+  if (h > 0) {
+    return `${h}h ${m}m`;
+  } else if (m > 0) {
+    return `${m}m ${s}s`;
+  } else {
+    return `${s}s`;
+  }
 };
